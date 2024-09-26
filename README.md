@@ -52,6 +52,4 @@ Options:
 
 ### Output
 
-`bcurv_ij.dat` - contains elements of the Berry curvature tensor for each k point and band.
-
-The file headers explain the content.
+`bcurv_ij.dat` - contains elements of the Berry curvature tensor for each k point and band. The file headers explain the content.

@@ -8,18 +8,19 @@ PROGRAM berrycpt
 !       and energy differences E_i - E_j in a k-point block of mommat file
 !     read_numlines.f90 -- Read number of lines in a file
 !
-! (c) Oleg Rubel, Mar 2021
+! (c) Oleg Rubel, Sep 2024
 !
 ! Execution:
-!   $ ./berrycpt arg1 [arg2]
+!   $ ./berrycpt arg1 -nvb arg3
 ! arg1 - input mommat file name
-! arg2 - (optional) degeneracy energy tolerance [Ha]
-!        max dE for 2 states to be considered as degenerate
-!        default value is 1.0e-6 Ha
+! arg3 - the number of occupied bands
+!
+!   $ ./berrycpt WAVEDER -efermiev arg3
+! arg3 - the Fermi energy in (eV) to determine occupied bands
 !
 ! Output:
 ! bcurv_ij.dat - contains elements of the Berry curvature tensor.
-! If the files exist from a previous run, they will be removed
+! If the file exists from a previous run, it will be removed.
 !
 ! Tips:
 ! (1): Writing of the mommat file is _not_ default in WIEN2k.
@@ -43,8 +44,7 @@ PROGRAM berrycpt
 !          ------^
 ! (3): In VASP calculations use LOPTICS = .TRUE., increase (at least x3) 
 !      the number NBANDS = XXXX, and disable a finite differences derivative 
-!      of the cell-periodic part of the orbitals LPEAD =.FALSE. Tests show 
-!      that m* values calculated with LPEAD =.TRUE. make no sense.
+!      of the cell-periodic part of the orbitals LPEAD =.FALSE.
 
 !! Variables
 
@@ -64,7 +64,8 @@ INTEGER :: &
     ispin, & ! current spin (1/2)
     nb, & ! number of bands for a current k-point
     nbb, & ! number of band-to-band transition 
-    nbcder, & ! the max number of bands for which m* is calculated
+    nbcder, & ! the max number of bands for which the Berry curvature
+              ! is calculated
               ! In WIEN2k we set it = to the total number of bands
               ! In VASP it is set in WAVEDER file as NBANDS_CDER
     ivb, i, j, ikpt, & ! counters
@@ -286,7 +287,7 @@ DO ispin = 1, nstot
             CALL read_mommat_nb(1, & ! <- args in
                     iline, & ! <-> args in-out
                     nb) ! -> args out
-            ! the max number of bands for which m* is calculated
+            ! the max number of bands for which the Berry curvature is calculated
             ! here (WIEN2k) we set it = to the total number of bands
             nbcder = nb
         END IF
@@ -490,8 +491,7 @@ write(*,*) '         ------^'
 write(*,*) '(3): In VASP calculations use LOPTICS = .TRUE., increase'
 write(*,*) '     (at least x3) the number NBANDS = XXXX, and disable a finite'
 write(*,*) '     differences derivative of the cell-periodic part of'
-write(*,*) '     the orbitals LPEAD =.FALSE. Tests show that m* values'
-write(*,*) '     calculated with LPEAD =.TRUE. make no sense.'
+write(*,*) '     the orbitals LPEAD =.FALSE.'
 STOP 0
 
 !! Error section
