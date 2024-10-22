@@ -53,7 +53,7 @@ write(*,*) 'Sometimes it happens when VASP file is read assuming WIEN2k', &
     ' format. If you read VASP file, the input file should have exact name', &
     ' WAVEDER.'
 CLOSE(fid)
-STOP
+STOP 1
 
 ! read or data error, abort
 20 write(*,*) 'unable to read the number of bands from the following line'
@@ -67,6 +67,6 @@ write(*,*) 'If the line printed above is not readable, most likely you read', &
     ' the VASP binary file assuming WIEN2k format. If you read VASP file,', &
     ' the input file should have the exact name WAVEDER.'
 CLOSE(fid)
-STOP
+STOP 1
 
 END SUBROUTINE read_mommat_nb
