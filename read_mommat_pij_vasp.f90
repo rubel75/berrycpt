@@ -85,12 +85,11 @@ END DO ! k-points
 IF (iband-1==nb .AND. ikpt-1==nktot) THEN
     write (*,*) 'WAVEDER and EIGENVAL files were read successfully'
 ELSE
-    write (*,*) 'Error in reading EIGENVAL file'
     write(*,'(I0,A,I0)') ikpt-1, &
         ' k-points found in EIGENVAL file, while expecting ', nktot
     write(*,'(I0,A,I0)') iband-1, &
         ' bands found in EIGENVAL file, while expecting ', nb
-    STOP
+    ERROR STOP 'ERROR in reading EIGENVAL file'
 END IF
 
 !! Determine energy difference between pairs of states in [Ha]
@@ -145,7 +144,7 @@ write(*,'(A)') TRIM(cline)
 write(*,*) 'while expected'
 write(*,'(A)') ' 9999       20.826607   0.000000'
 write(*,*) 'Execution terminated'
-STOP
+ERROR STOP
 
 30 & ! read error in EIGENVAL (spin up & down)
 write(*,*) 'ERROR while reading EIGENVAL (2 spins mode)'
@@ -154,6 +153,6 @@ write(*,'(A)') TRIM(cline)
 write(*,*) 'while expected'
 write(*,'(A)') ' 9999       20.826607        20.826607   0.000000     0.000000'
 write(*,*) 'Execution terminated'
-STOP
+ERROR STOP
 
 END SUBROUTINE read_mommat_pij_vasp
