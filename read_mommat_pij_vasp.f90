@@ -138,7 +138,7 @@ RETURN
 !! Read error handling
 
 20 & ! read error in EIGENVAL (single spin)
-write(*,*) 'ERROR while reading EIGENVAL (single spin mode)'
+& write(*,*) 'ERROR while reading EIGENVAL (single spin mode)'
 write(*,*) 'Here is the line that caused the error'
 write(*,'(A)') TRIM(cline)
 write(*,*) 'while expected'
@@ -147,7 +147,7 @@ write(*,*) 'Execution terminated'
 ERROR STOP
 
 30 & ! read error in EIGENVAL (spin up & down)
-write(*,*) 'ERROR while reading EIGENVAL (2 spins mode)'
+& write(*,*) 'ERROR while reading EIGENVAL (2 spins mode)'
 write(*,*) 'Here is the line that caused the error'
 write(*,'(A)') TRIM(cline)
 write(*,*) 'while expected'

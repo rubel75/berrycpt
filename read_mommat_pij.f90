@@ -81,7 +81,8 @@ CLOSE(fid)
 ERROR STOP
 
 ! error reading the line (old format)
-20 write(*,*) 'ERROR reading the line from mommat file containing'
+20 &
+& write(*,*) 'ERROR reading the line from mommat file containing'
 write(*,'(A)') TRIM(cline)
 write(*,'(A,I0)') 'line number ', iline
 write(*,*) 'while expecting a _fixed_ format line like this'
@@ -91,7 +92,8 @@ CLOSE(fid)
 ERROR STOP
 
 ! error reading the line (new format)
-30 write(*,*) 'ERROR reading the line from mommat file containing'
+30 &
+& write(*,*) 'ERROR reading the line from mommat file containing'
 write(*,'(A)') TRIM(cline)
 write(*,'(A,I0)') 'line number ', iline
 write(*,*) 'while expecting a _free_ format line like this'
