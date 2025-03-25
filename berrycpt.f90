@@ -1,6 +1,6 @@
 PROGRAM berrycpt
 ! includes subprograms:
-!     dgenen.f90 -- Group degenerate states
+!     degen.f90 -- Handles perturbation theory for degenerate states
 !     eigvz.f90 -- Solve a complex eigenvalue problem for a Hermitian matrix
 !     read_mommat_nb.f90 -- Determine number of bands in a k-point block of 
 !       mommat file
@@ -546,7 +546,7 @@ DO ispin = 1, nstot
                             pijA = pij(alpha,idg1:idg2,:)
                             pijB = pij(beta,:,idg1:idg2)
                             dEijdg = dEij(idg1:idg2,:)
-                            CALL dgen(nb, idg1, idg2, & ! <- args in 
+                            CALL degen(nb, idg1, idg2, & ! <- args in 
                                 pijA, pijB, dEijdg, & ! <- args in 
                                 bcurvdg) ! -> args out
                             bcurv(idg1:idg2,ivoigt-3) = bcurvdg
@@ -636,7 +636,7 @@ DO ispin = 1, nstot
                                 pijA = pijUP(alpha,idg1:idg2,:)
                                 pijB = pij(beta,:,idg1:idg2)
                                 dEijdg = dEij(idg1:idg2,:)
-                                CALL dgen(nb, idg1, idg2, & ! <- args in 
+                                CALL degen(nb, idg1, idg2, & ! <- args in 
                                     pijA, pijB, dEijdg, & ! <- args in 
                                     bcurvdg) ! -> args out
                                 bcurv(idg1:idg2,ivoigt-3) = bcurvdg
@@ -724,7 +724,7 @@ DO ispin = 1, nstot
                                 pijA = pijDN(alpha,idg1:idg2,:)
                                 pijB = pij(beta,:,idg1:idg2)
                                 dEijdg = dEij(idg1:idg2,:)
-                                CALL dgen(nb, idg1, idg2, & ! <- args in 
+                                CALL degen(nb, idg1, idg2, & ! <- args in 
                                     pijA, pijB, dEijdg, & ! <- args in 
                                     bcurvdg) ! -> args out
                                 bcurv(idg1:idg2,ivoigt-3) = bcurvdg
@@ -748,7 +748,7 @@ DO ispin = 1, nstot
             WRITE(22,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
             DEALLOCATE( bcurv )
 
-            ! spin UP-DN Berry curvature
+            ! spin UP-DN Berry curvature (Omega^z)
             ALLOCATE( bcurv(nvb,3) )
             bcurv = 0.0
             idg1 = 0 ! init. degeneracy indices
@@ -789,6 +789,8 @@ DO ispin = 1, nstot
                                 WRITE(*,*) 'n =', n
                                 WRITE(*,*) 'alpha =', alpha
                                 WRITE(*,*) 'beta =', beta
+                                WRITE(*,*) 'pijUP(alpha,ivb,n) =', &
+                                    pijUP(alpha,ivb,n)
                                 WRITE(*,*) 'pijDN(alpha,ivb,n) =', &
                                     pijDN(alpha,ivb,n)
                                 WRITE(*,*) 'pij(beta,n,ivb) =', &
@@ -810,10 +812,10 @@ DO ispin = 1, nstot
                                 ALLOCATE( bcurvdg(1+idg2-idg1), &
                                     pijA(1+idg2-idg1,nb), pijB(nb,1+idg2-idg1), &
                                     dEijdg(1+idg2-idg1,nb))
-                                pijA = pijDN(alpha,idg1:idg2,:)
+                                pijA = pijUP(alpha,idg1:idg2,:) - pijDN(alpha,idg1:idg2,:)
                                 pijB = pij(beta,:,idg1:idg2)
                                 dEijdg = dEij(idg1:idg2,:)
-                                CALL dgen(nb, idg1, idg2, & ! <- args in 
+                                CALL degen(nb, idg1, idg2, & ! <- args in 
                                     pijA, pijB, dEijdg, & ! <- args in 
                                     bcurvdg) ! -> args out
                                 bcurv(idg1:idg2,ivoigt-3) = bcurvdg

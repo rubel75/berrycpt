@@ -1,4 +1,4 @@
-SUBROUTINE dgen(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
+SUBROUTINE degen(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
     bcurv) ! -> args out
 
 ! Berry curvature for a block of degenerate bands
@@ -70,4 +70,4 @@ CALL eigvs(ndg, M, & ! <- args in
     bcurv) ! -> args out
 
 RETURN
-END SUBROUTINE dgen
+END SUBROUTINE degen
