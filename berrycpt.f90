@@ -80,6 +80,7 @@ INTEGER :: &
     idg1, idg2, & ! intext of the first and last degenerate state in the block
     n, & ! band indices
     nvb, & ! number of occupied bands [1:nvb]
+    nvbinpt, & ! inputed number of occupied bands [1:nvb]
     ivoigt, & ! Voigt index (1..6)
     alpha, beta, & ! Cartesian directions 1,2,3 = x,y,z
     ierr ! error code
@@ -132,14 +133,14 @@ CALL GETARG(2,arg2) ! switch for the number of valence bands [-nvb]
 IF (TRIM(arg2)=='-nvb') THEN
     ! 3rd argument can be the number of occupied bands
     CALL GETARG(3,arg3)
-    read(arg3,*,IOSTAT=ierr) nvb
+    read(arg3,*,IOSTAT=ierr) nvbinpt
     IF (ierr /= 0) THEN ! input error for 3rd argument
         WRITE(*,*) '3rd argument is "', TRIM(arg3), '"'
         WRITE(*,*) 'Error detected for the 3rd input argument (must be a number of occupied bands)'
         GOTO 912 ! print error and STOP
     END IF
     WRITE (*,'(A,I0)') & !...
-        ' Number of occupied bands = ', nvb
+        ' Number of occupied bands = ', nvbinpt
 ELSE IF (TRIM(arg2)=='-efermiev') THEN
     ! 3rd argument can be the Fermi energy, which will be used to determine
     ! spin and k-specific number of occupied bands
@@ -151,7 +152,7 @@ ELSE IF (TRIM(arg2)=='-efermiev') THEN
         GOTO 912 ! print error and STOP
     END IF
     WRITE (*,'(A,F10.6)') & !...
-        ' Fermi energy (eV) = ', nvb
+        ' Fermi energy (eV) = ', efermi
 ELSE ! impossible
     WRITE (*,*) 'The second argument is "', TRIM(arg2), &
         '", while expected "-nvb" or "-efermiev"'
@@ -454,9 +455,27 @@ DO ispin = 1, nstot
 
         !! VASP k- and spin-specific number of occupied bands
 
-        IF (.not.(wien2k)) THEN
+        IF (wien2k) THEN
+            nvb = nvbinpt ! use input value for the last occupied band
+        ELSE ! VASP
             nvb = nbocck(ikpt,ispin)
         END IF
+
+        ! Handle situation when the degenerate block extends past 'nvb'
+        ivb = nvb
+        DO n = nvb+1, nb
+            dE = dEij(ivb,n)
+            IF (ABS(dE) > 1.0e-5) THEN ! the energy difference is significant
+                IF (n-1 > nvb) THEN
+                    WRITE(*,'(A,I0,A,I0,A,I0,A)') 'WARNING: While processing ' &
+                        //'k-point ', ikpt, &
+                        ', the last occupied band was updated from ', &
+                        nvbinpt, ' to ', n-1, ' due to degeneracy.'
+                END IF
+                nvb = n-1
+                EXIT ! DO loop
+            END IF
+        END DO
 
         !! Write information about the current k-point
 
