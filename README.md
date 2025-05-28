@@ -1,13 +1,13 @@
 # BerryCPT
-Berry curvature calculation with DFT using perturbation theory. Currently supported codes:
+BerryCPT is a code for calculating Berry curvature and orbital angular momentum (OAM) tensors using perturbation theory and DFT outputs. Supported codes:
 * [WIEN2k](http://www.wien2k.at)
 * [VASP](https://www.vasp.at)
 
-It is written in Fortran and intended for Linux OS
+It is written in Fortran and intended for Linux-based systems.
 
-### Current Version
+### Current status
 
-It is a work in progress (incomplete). Please wait until a fully functional version is released.
+**Work in progress** — the current version is not yet fully functional. A stable release will be announced once complete.
 
 
 ### Installation:
@@ -45,11 +45,42 @@ Options:
 
   * `[-up/-dn]` tells `berrycpt` to read `case.mommat2[up/dn]` files (needed for spin-polarized calculations or calculations with spin-orbit coupling).
 
-  * `-nvb XX` sets the number of occupied bands.
+  * `-nvb XX` sets the number of bands used in the calculation. For total Berry curvature, this corresponds to the number of occupied bands. For band-resolved Berry curvature and OAM, it defines the range of bands to include (not necessarily all occupied).
 
-  * `-efermiev 3.123` sets the Fermi energy in (eV) to determine which bands are occupied (available in VASP only).
+  * `-efermiev 3.123` sets Fermi energy (in eV) to determine occupied bands (VASP only).
 
 
 ### Output
 
-`bcurv_ij.dat` - contains elements of the Berry curvature tensor for each k point and band. The file headers explain the content.
+- `bcurv_ij.dat`  
+  Total Berry curvature tensor computed from the full spinor wavefunctions.
+
+- `bcurv_ij-up.dat`, `bcurv_ij-dn.dat`  
+  Spin-projected Berry curvature components. These are computed by replacing one of the matrix elements of the standard expression:
+
+      Im[ ⟨uₙ | v_a | uₘ⟩ × ⟨uₘ | v_b | uₙ⟩ ]
+
+  with a spin-projected form:
+
+      ⟨uₘ^↑ | v_a | uₙ^↑⟩   or   ⟨uₘ^↓ | v_a | uₙ^↓⟩
+
+  This is **not** equivalent to evaluating the Berry curvature with the **spin current operator**, which is defined as:
+
+      J_a^σ_i = (1/2) { v_a, σ_i }
+
+  Hence, `bcurv_ij-up.dat` and `bcurv_ij-dn.dat` reflect diagonal components of the spin current operator J_a^σ_z.
+
+
+- `bcurv_ij-up-dn.dat`  
+  Spin-z Berry curvature tensor components. This file contains the difference between the spin-up and spin-down projected Berry curvature:
+
+      Ω_ab^{s_z} = Ω_ab^↑ − Ω_ab^↓
+
+  which is equivalent to computing the Berry curvature using the **spin current operator**:
+
+      J_b^{s_z} = (1/2) { v_a, σ_z }
+
+- `oam_ij.dat`  
+  Orbital angular momentum (OAM) tensor for each k-point and band.
+
+> **Note**: All files will be overwritten if they exist from a previous run.

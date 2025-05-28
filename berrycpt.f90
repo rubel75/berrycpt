@@ -1,52 +1,61 @@
 PROGRAM berrycpt
-! includes subprograms:
-!     degen.f90 -- Handles perturbation theory for degenerate states
-!     eigvz.f90 -- Solve a complex eigenvalue problem for a Hermitian matrix
-!     read_mommat_nb.f90 -- Determine number of bands in a k-point block of 
-!       mommat file
-!     read_mommat_pij.f90 -- Read momentum matrix elements <i|p_a|j> (a=x,y,z) 
-!       and energy differences E_i - E_j in a k-point block of mommat file
-!     read_numlines.f90 -- Read number of lines in a file
+! Includes subprograms:
+!     degenbc.f90       -- Handles perturbation theory for degenerate states when 
+!                          calculating Berry curvature
+!     degenoam.f90      -- Handles perturbation theory for degenerate states when 
+!                          calculating orbital angular momentum (OAM)
+!     eigvz.f90         -- Solves a complex eigenvalue problem for a Hermitian matrix
+!     read_mommat_nb.f90 -- Determines the number of bands in a k-point block of 
+!                          the mommat file
+!     read_mommat_pij.f90 -- Reads momentum matrix elements <i|p_a|j> (a = x, y, z) 
+!                          and energy differences E_i - E_j in a k-point block of the mommat file
+!     read_numlines.f90 -- Reads the number of lines in a file
 !
 ! (c) Oleg Rubel, Sep 2024
 !
 ! Execution:
 !   $ ./berrycpt arg1 -nvb arg3 [-so]
-! arg1 - input mommat file name
-! arg3 - the number of occupied bands
-! -so  - optional switch for WIEN2k with SOC calculation
-!        (spin-resolved Berry curvature)
+!     arg1  - input mommat file name
+!     arg3  - number of occupied bands
+!     -so   - optional switch for WIEN2k with spin-orbit coupling (SOC) 
+!             (sincluding spin-resolved Berry curvature)
 !
 !   $ ./berrycpt WAVEDER -efermiev arg3
-! arg3 - the Fermi energy in (eV) to determine occupied bands
+!     arg3  - Fermi energy (in eV) to determine occupied bands
 !
 ! Output:
-! bcurv_ij.dat - contains elements of the Berry curvature tensor.
-! If the file exists from a previous run, it will be removed.
+!     bcurv_ij.dat         - contains elements of the Berry curvature tensor
+!     bcurv_ij-up.dat      - spin-up Berry curvature tensor elements
+!     bcurv_ij-dn.dat      - spin-down Berry curvature tensor elements
+!     bcurv_ij-up-dn.dat   - spin-offdiagonal Berry curvature elements
+!     oam_ij.dat           - contains elements of the orbital angular momentum tensor
+!     (Note: Existing files will be overwritten)
 !
 ! Tips:
-! (1): Writing of the mommat file is _not_ default in WIEN2k.
-!      To enable writing, edit the case.inop file and change
-!      OFF to ON in the following line:
-!      ON           ON/OFF   WRITEs MME to unit 4
-!      -^
-! (2): Make sure to get _plenty_ empty bands during SCF.
-!      This requires modification in several input files:
-!      (a) extend "de" in case.in1(c) above 5 Ry
-!          K-VECTORS FROM UNIT:4   -9.0      10.0    10   emin / de (emax=Ef+de) / nband
-!          -----------------------------------^
-!      (b) if you do SOC calculation, extend "Emax" in
-!          case.inso up to 5 Ry
-!          -10 5.0                Emin, Emax
-!          -----^
-!      (c) default "Emax" in case.inop is 3 Ry, which should
-!          be OK, but it can be good to test the convergence
-!          and push this parameter up to 5 Ry
-!          -5.0 3.5 9999 Emin, Emax for matrix elements, NBvalMAX
-!          ------^
-! (3): In VASP calculations use LOPTICS = .TRUE., increase (at least x3) 
-!      the number NBANDS = XXXX, and disable a finite differences derivative 
-!      of the cell-periodic part of the orbitals LPEAD =.FALSE.
+! (1) Writing of the mommat file is _not_ enabled by default in WIEN2k.
+!     To enable writing, edit the case.inop file and change
+!     OFF to ON in the following line:
+!         ON           ON/OFF   WRITEs MME to unit 4
+!         -^
+!
+! (2) Ensure _plenty_ of empty bands are included during SCF:
+!     (a) Increase "de" in case.in1(c) above 5 Ry:
+!         K-VECTORS FROM UNIT:4   -9.0      10.0    10   emin / de (emax = Ef + de) / nband
+!                                     ------------------^
+!
+!     (b) For SOC calculations, extend "Emax" in case.inso up to 5 Ry:
+!         -10 5.0                Emin, Emax
+!         -----^
+!
+!     (c) The default "Emax" in case.inop is 3 Ry (usually OK),
+!         but consider testing convergence and increasing up to 5 Ry:
+!         -5.0 3.5 9999         Emin, Emax for matrix elements, NBvalMAX
+!         ------^
+!
+! (3) For VASP calculations:
+!     - Set LOPTICS = .TRUE.
+!     - Increase NBANDS (at least x3)
+!     - Disable finite-difference derivatives: LPEAD = .FALSE.
 
 !! Variables
 
@@ -57,8 +66,9 @@ CHARACTER(len=256) :: &
     arg1, arg2, arg3, arg4, & ! command line input arguments
     fnameinp, & ! input file with momentum or dipole matrix elements
     fnameinpUP, fnameinpDN, & ! spin-resolved mom. matr. elements (WIEN2k only)
-    fnameout2,  & ! input/output file names
+    fnameout2,  & ! output file names
     fnameout21, fnameout22, fnameout23, & ! ... spin UP, DN, UP-DN Berry curvature
+    fnameout3,  & ! output file names
     wformat2, & ! format for writing/reading data
     charspin ! spin component for spin-polarized calculations
 INTEGER :: &
@@ -96,7 +106,10 @@ REAL(kind=4), ALLOCATABLE :: &
     dEijks(:,:,:,:), & ! k- and spin-dependent energy differences E_i-E_j [Ha]
     bcurv(:,:), & ! array to store Berry curvature
     bcurvdg(:), & ! array to store Berry curvature of a block of degenerate bands
+    oam(:,:), & ! array to store orbital angular momentum (OAM)
+    oamdg(:), & ! array to store OAM of a block of degenerate bands
     omega, & ! Berry curvature (intermediate)
+    Lnln, & ! OAM (intermediate)
     p2 ! product of momentum matrix elements
 COMPLEX(kind=4), ALLOCATABLE :: &
     pij(:,:,:), & ! momentum matrix elements [at.u.]
@@ -386,6 +399,14 @@ DO ispin = 1, nstot
         WRITE(23,'(A)') '# band  4=yz;      5=xz;      6=xy'
     END IF
 
+    fnameout3 = 'oam_ij'//TRIM(charspin)//'.dat'
+    OPEN (3, file = TRIM(fnameout3), status = 'UNKNOWN') ! output file 1
+    WRITE(3,'(A)') '# This file is generated by berrycpt'
+    WRITE(3,'(A)') '# the output contains components of the orbital angular momentum tensor L_ij'
+    WRITE(3,'(A)') '# that are grouped by k-point index and then by the band index.'
+    WRITE(3,'(A)') '# Columns correspond to values of L_ij'
+    WRITE(3,'(A)') '# band  4=yz;      5=xz;      6=xy'
+
     !! Main part nested loops
     
     fmommatend = .false. ! end of mommat file is not reached
@@ -489,6 +510,8 @@ DO ispin = 1, nstot
             WRITE(23,'(A,I0,1X,A,I0,1X,A,I0)') & !...
                     '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
         END IF
+        WRITE(3,'(A,I0,1X,A,I0,1X,A,I0)') & !...
+                '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
         
         !! preapare output formats for Berry curvatures
         
@@ -499,11 +522,13 @@ DO ispin = 1, nstot
             
         !! Loop through blocks of occupied bands
 
-        ! array to store non-spin-resolved Berry curvatures
+        ! array to store non-spin-resolved Berry curvatures and OAM
         ! Size 3 is because of only off-diogonal components of the Berry
-        ! curvature tensor (4=yz; 5=xz; 6=xy) are not = 0
+        ! curvature and OAM tensor (4=yz; 5=xz; 6=xy) are not = 0
         ALLOCATE( bcurv(nvb,3) )
+        ALLOCATE( oam(nvb,3) )
         bcurv = 0.0
+        oam = 0.0
         idg1 = 0 ! init. degeneracy indices
         idg2 = 0
         DO ivb = 1,nvb
@@ -534,6 +559,7 @@ DO ispin = 1, nstot
                     ! TODO: change 1.0e-5 to "etol" variable
                     IF (ABS(dE) > 1.0e-5) THEN ! ingnore degenerate bands
                         omega = p2/(dE*dE)
+                        Lnln = - p2/dE
                         ! make sure omega is finite (not NaN and not Inf)
                         IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
                             WRITE(*,*) 'ikpt =', ikpt
@@ -550,9 +576,25 @@ DO ispin = 1, nstot
                             WRITE(*,*) 'dE = ', dE
                             WRITE(*,*) 'p2 = ', p2
                             ERROR STOP 'Error: omega is not finite'
+                        ELSEIF (Lnln /= Lnln .or. abs(Lnln) > HUGE(abs(Lnln))) THEN
+                            WRITE(*,*) 'ikpt =', ikpt
+                            WRITE(*,*) 'ivb =', ivb
+                            WRITE(*,*) 'n =', n
+                            WRITE(*,*) 'alpha =', alpha
+                            WRITE(*,*) 'beta =', beta
+                            WRITE(*,*) 'pij(alpha,ivb,n) =', &
+                                pij(alpha,ivb,n)
+                            WRITE(*,*) 'pij(beta,n,ivb) =', &
+                                pij(beta,n,ivb)
+                            WRITE(*,*) 'dEij(ivb,n) =', dEij(ivb,n)
+                            WRITE(*,*) 'Lnln = ', Lnln
+                            WRITE(*,*) 'dE = ', dE
+                            WRITE(*,*) 'p2 = ', p2
+                            ERROR STOP 'Error: Lnln is not finite'
                         END IF
                         ! update Mnm array
                         bcurv(ivb,ivoigt-3) = bcurv(ivb,ivoigt-3) + omega
+                        oam(ivb,ivoigt-3) = oam(ivb,ivoigt-3) + Lnln
                         IF (ldg) THEN ! endeding of degenerate block
                             ldg = .FALSE.
                             idg2 = MAX(n-1, ivb)
@@ -560,16 +602,21 @@ DO ispin = 1, nstot
                                 ERROR STOP 'Wrong boundaries of the degenerate block'
                             END IF
                             ALLOCATE( bcurvdg(1+idg2-idg1), &
+                                oamdg(1+idg2-idg1), &
                                 pijA(1+idg2-idg1,nb), pijB(nb,1+idg2-idg1), &
                                 dEijdg(1+idg2-idg1,nb))
                             pijA = pij(alpha,idg1:idg2,:)
                             pijB = pij(beta,:,idg1:idg2)
                             dEijdg = dEij(idg1:idg2,:)
-                            CALL degen(nb, idg1, idg2, & ! <- args in 
+                            CALL degenbc(nb, idg1, idg2, & ! <- args in 
                                 pijA, pijB, dEijdg, & ! <- args in 
                                 bcurvdg) ! -> args out
                             bcurv(idg1:idg2,ivoigt-3) = bcurvdg
-                            DEALLOCATE(bcurvdg, pijA, pijB, dEijdg)
+                            CALL degenoam(nb, idg1, idg2, & ! <- args in 
+                                pijA, pijB, dEijdg, & ! <- args in 
+                                oamdg) ! -> args out
+                            oam(idg1:idg2,ivoigt-3) = oamdg
+                            DEALLOCATE(bcurvdg, oamdg, pijA, pijB, dEijdg)
                             EXIT bands ! DO loop
                         END IF
                     ELSEIF (ABS(dE) < 1.0e-5 .and. ivb /= n) THEN ! degenerate bands
@@ -581,13 +628,14 @@ DO ispin = 1, nstot
                 END DO bands! loop over 'n'
             END DO ! loop over 'ivoigt'
         END DO ! loop over 'ivb'
-        ! store the Berry curvature band-by-band for all occupied states
+        ! store the Berry curvature and OAM band-by-band for all occupied states
         DO ivb = 1, nvb
             WRITE(2,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
+            WRITE(3,TRIM(wformat2)) ivb, (oam(ivb,j), j=1,3)
         END DO
         ! store the total Berry curvature for all occupied states
         WRITE(2,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
-        DEALLOCATE( bcurv )
+        DEALLOCATE( bcurv, oam )
 
         ! calculate spin-resolved and spin Berry curvature
         IF ( wien2k .AND. spinor ) THEN
@@ -655,7 +703,7 @@ DO ispin = 1, nstot
                                 pijA = pijUP(alpha,idg1:idg2,:)
                                 pijB = pij(beta,:,idg1:idg2)
                                 dEijdg = dEij(idg1:idg2,:)
-                                CALL degen(nb, idg1, idg2, & ! <- args in 
+                                CALL degenbc(nb, idg1, idg2, & ! <- args in 
                                     pijA, pijB, dEijdg, & ! <- args in 
                                     bcurvdg) ! -> args out
                                 bcurv(idg1:idg2,ivoigt-3) = bcurvdg
@@ -743,7 +791,7 @@ DO ispin = 1, nstot
                                 pijA = pijDN(alpha,idg1:idg2,:)
                                 pijB = pij(beta,:,idg1:idg2)
                                 dEijdg = dEij(idg1:idg2,:)
-                                CALL degen(nb, idg1, idg2, & ! <- args in 
+                                CALL degenbc(nb, idg1, idg2, & ! <- args in 
                                     pijA, pijB, dEijdg, & ! <- args in 
                                     bcurvdg) ! -> args out
                                 bcurv(idg1:idg2,ivoigt-3) = bcurvdg
@@ -834,7 +882,7 @@ DO ispin = 1, nstot
                                 pijA = pijUP(alpha,idg1:idg2,:) - pijDN(alpha,idg1:idg2,:)
                                 pijB = pij(beta,:,idg1:idg2)
                                 dEijdg = dEij(idg1:idg2,:)
-                                CALL degen(nb, idg1, idg2, & ! <- args in 
+                                CALL degenbc(nb, idg1, idg2, & ! <- args in 
                                     pijA, pijB, dEijdg, & ! <- args in 
                                     bcurvdg) ! -> args out
                                 bcurv(idg1:idg2,ivoigt-3) = bcurvdg
@@ -902,11 +950,12 @@ DO ispin = 1, nstot
     
     !! Close output files
     
-    CLOSE (2) ! output file 1
+    CLOSE (2) ! output file with Berry curvature
     IF ( wien2k .AND. spinor ) THEN
         CLOSE (21) ! spin-resolved UP Berry curvature
         CLOSE (22) ! spin-resolved DN Berry curvature
     END IF
+    CLOSE (3) ! output file with OAM
     
 END DO ! loop over spins
 
@@ -922,9 +971,18 @@ WRITE(*,*) 'Summary of the output:'
 WRITE(*,*) '(1) Components of the Berry curvature tensor are stored in the file'
 WRITE(*,*) '    ', TRIM(fnameout2)
 WRITE(*,*) '    See the file header for the description'
+WRITE(*,*) '(2) Components of the orbital angular momentum tensor are stored in the file'
+WRITE(*,*) '    ', TRIM(fnameout3)
+IF ( wien2k .AND. spinor ) THEN
+    WRITE(*,*) '(3) Spin Berry curvature (WIEN2k only) is stored in'
+    WRITE(*,*) '    ', TRIM(fnameout21), ', ', &
+        TRIM(fnameout22), ', ', TRIM(fnameout23)
+END IF
 WRITE(*,*) ''
 WRITE(*,*) 'Suggested reference:'
-WRITE(*,*) '[1] TBD'
+WRITE(*,'(A,/A,/,A)') '[1] Rubel, O. (2024). BerryCPT: Berry curvature and orbital ', &
+    '    angular momentum from perturbation theory [Computer software]. ', &
+    '    GitHub. https://github.com/rubel75/berrycpt'
 STOP ! end of the main code
 
 

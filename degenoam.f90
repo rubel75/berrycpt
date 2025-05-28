@@ -1,7 +1,7 @@
-SUBROUTINE degen(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
-    bcurv) ! -> args out
+SUBROUTINE degenoam(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
+    oam) ! -> args out
 
-! Berry curvature for a block of degenerate bands
+! Orbital angular momentum (OAM) for a block of degenerate bands
 
 !! Variables in/out
 
@@ -15,7 +15,7 @@ COMPLEX(kind=4), intent(in) :: &
 REAL(kind=4), intent(in) :: &
     dEij(1+idg2-idg1,nb) ! energy differences E_i-E_j [Ha]
 REAL(kind=4), intent(out) :: &
-    bcurv(1+idg2-idg1) ! Berry curvature for a block of degenerate bands
+    oam(1+idg2-idg1) ! OAM for a block of degenerate bands
 
 !! Variables internal
 
@@ -23,7 +23,7 @@ REAL(kind=4) :: &
     M(1+idg2-idg1,1+idg2-idg1), & ! Matrix similar to Eq. (6) in mstar paper (https://doi.org/10.1016/j.cpc.2020.107648)
     p2, & ! product of momentum matrix elements
     dE, & ! energy difference [Ha]
-    omega ! component leading to M(m,n)
+    Lnln ! component leading to M(m,n)
 INTEGER :: &
     n, idg, & ! band indices
     i, j, & ! counter
@@ -43,9 +43,9 @@ DO i = 1, ndg
             IF (n < idg1 .or. n > idg2) THEN ! ignore degenerate bands
                 p2 = (-2.0) * AIMAG( pijA(i,n)*pijB(n,j))
                 dE = (dEij(i,n) + dEij(j,n))/2.0
-                omega = p2/(dE*dE)
-                ! make sure omega is finite (not NaN and not Inf)
-                IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
+                Lnln = -p2/dE
+                ! make sure Lnln is finite (not NaN and not Inf)
+                IF (Lnln /= Lnln .or. abs(Lnln) > HUGE(abs(Lnln))) THEN
                     WRITE(*,*) 'i =', i
                     WRITE(*,*) 'j =', j
                     WRITE(*,*) 'n =', n
@@ -53,21 +53,21 @@ DO i = 1, ndg
                     WRITE(*,*) 'pijB(n,j) =', pijB(n,j)
                     WRITE(*,*) 'dEij(i,n) =', dEij(i,n)
                     WRITE(*,*) 'dEij(j,n) =', dEij(j,n)
-                    WRITE(*,*) 'omega = ', omega
+                    WRITE(*,*) 'Lnln = ', Lnln
                     WRITE(*,*) 'dE = ', dE
                     WRITE(*,*) 'p2 = ', p2
-                    ERROR STOP 'Error: omega is not finite'
+                    ERROR STOP 'Error: Lnln is not finite'
                 END IF
-                M(i,j) = M(i,j) + omega
+                M(i,j) = M(i,j) + Lnln
             END IF
         END DO ! n
     END DO ! j
 END DO ! i
 
-!! Berry corvature is eigenvalues of the M matrix
+!! OAM is eigenvalues of the M matrix
 
 CALL eigvs(ndg, M, & ! <- args in 
-    bcurv) ! -> args out
+    oam) ! -> args out
 
 RETURN
-END SUBROUTINE degen
+END SUBROUTINE degenoam
