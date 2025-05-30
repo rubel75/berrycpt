@@ -53,12 +53,20 @@ Options:
 ### Output
 
 - `bcurv_ij.dat`  
-  Total Berry curvature tensor computed from the full spinor wavefunctions.
+  Total Berry curvature tensor computed using second-order degenerate perturbation theory based on velocity (or momentum) matrix elements between spinor Bloch states (in atomic units):
+
+      Ω_{ab,n}(k) = sum_{m ≠ n} (-2)*Im[ v_a(n,m) * v_b(m,n) ] / (ε_n(k) - ε_m(k))^2
+  
+  where:
+  - `v_a(n,m) = ⟨ u_{n,k} | v_a | u_{m,k} ⟩` is the velocity matrix element along direction `a`,
+  - `ε_n(k)` and `ε_m(k)` are the band energies at the k-point,
+  - `a` and `b` are Cartesian directions (`x`, `y`, or `z`),
+  - the sum runs over all bands `m ≠ n`.
 
 - `bcurv_ij-up.dat`, `bcurv_ij-dn.dat`  
   Spin-projected Berry curvature components. These are computed by replacing one of the momentum matrix elements of the standard expression:
 
-      Im[ ⟨uₙ | v_a | uₘ⟩ × ⟨uₘ | v_b | uₙ⟩ ]
+      ⟨uₙ | v_a | uₘ⟩ * ⟨uₘ | v_b | uₙ⟩
 
   with a spin-projected form:
 
@@ -81,18 +89,16 @@ Options:
       J_b^{s_z} = (1/2) { v_a, σ_z }
 
 - `oam_ij.dat`  
-  Orbital angular momentum (OAM) tensor for each k-point and band.
+  Orbital angular momentum (OAM) tensor for each k-point and band computed using second-order degenerate perturbation theory based on velocity (or momentum) matrix elements between spinor Bloch states (in atomic units):
+
+      L_{ab,n}(k) = sum_{m ≠ n} 2*Im[ v_a(n,m) * v_b(m,n) ] / (ε_n(k) - ε_m(k))
 
 - `oam_ij-sigma_z-up.dat`  
-  Spin-up projected orbital angular momentum, computed using second-order perturbation theory based on velocity (or momentum) matrix elements between spinor Bloch states:
+  Spin-up projected orbital angular momentum, computed using second-order degenerate perturbation theory based on velocity (or momentum) matrix elements between spinor Bloch states (in atomic units):
 
-      L_{ab,n}^{σ_z,↑}(k) = sum_{m ≠ n} Im[ v_a(n,m)^↑↑ * v_b(m,n)^↑↑ ] / (ε_m(k) - ε_n(k))
+      L_{ab,n}^{σ_z,↑}(k) = sum_{m ≠ n} 2*Im[ v_a(n,m)^↑↑ * v_b(m,n)^↑↑ ] / (ε_n(k) - ε_m(k))
   
-  where:
-  - `v_a(n,m)^↑↑` = ⟨ u_{n,k,↑} | v_a | u_{m,k,↑} ⟩ is the velocity matrix element between spin-up components along direction `a`,
-  - `ε_n(k)` and `ε_m(k)` are the band energies at the k-point,
-  - `a` and `b` are Cartesian directions (`x`, `y`, or `z`),
-  - the sum runs over all bands `m ≠ n`.
+  where `v_a(n,m)^↑↑ = ⟨ u_{n,k,↑} | v_a | u_{m,k,↑} ⟩` is the velocity matrix element between spin-up components along direction `a`.
  
   This expression corresponds to the spin-up-z projection of the orbital angular momentum tensor in the form:
 
