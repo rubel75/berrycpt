@@ -7,7 +7,7 @@ It is written in Fortran and intended for Linux-based systems.
 
 ### Current status
 
-**Work in progress** — the current version is not yet fully functional. A stable release will be announced once complete.
+**Near-final version:** All planned features have been implemented. The code is currently being tested and reviewed before release.
 
 
 ### Installation:
@@ -56,7 +56,7 @@ Options:
   Total Berry curvature tensor computed from the full spinor wavefunctions.
 
 - `bcurv_ij-up.dat`, `bcurv_ij-dn.dat`  
-  Spin-projected Berry curvature components. These are computed by replacing one of the matrix elements of the standard expression:
+  Spin-projected Berry curvature components. These are computed by replacing one of the momentum matrix elements of the standard expression:
 
       Im[ ⟨uₙ | v_a | uₘ⟩ × ⟨uₘ | v_b | uₙ⟩ ]
 
@@ -82,5 +82,22 @@ Options:
 
 - `oam_ij.dat`  
   Orbital angular momentum (OAM) tensor for each k-point and band.
+
+- `oam_ij-sigma_z-up.dat`  
+  Spin-up projected orbital angular momentum, computed using second-order perturbation theory based on velocity (or momentum) matrix elements between spinor Bloch states:
+
+      L_{ab,n}^{σ_z,↑}(k) = sum_{m ≠ n} Im[ v_a(n,m)^↑↑ * v_b(m,n)^↑↑ ] / (ε_m(k) - ε_n(k))
+  
+  where:
+  - `v_a(n,m)^↑↑` = ⟨ u_{n,k,↑} | v_a | u_{m,k,↑} ⟩ is the velocity matrix element between spin-up components along direction `a`,
+  - `ε_n(k)` and `ε_m(k)` are the band energies at the k-point,
+  - `a` and `b` are Cartesian directions (`x`, `y`, or `z`),
+  - the sum runs over all bands `m ≠ n`.
+ 
+  This expression corresponds to the spin-up-z projection of the orbital angular momentum tensor in the form:
+
+      L_{ab}^{σ_z,↑}(k) = ⟨ u_{n,k} | L_{ab} * P_{↑_z} | u_{n,k} ⟩
+
+  with `P_{↑_z} = 1/2 * (I + σ_z) = [[1, 0], [0, 0]]` being the projection operator onto spin-up states. Here `I = [[1, 0], [0, 1]]` is the identity matrix.
 
 > **Note**: All files will be overwritten if they exist from a previous run.
