@@ -35,7 +35,7 @@ The `makefile` is set up for the Intel Fortran compiler `ifort` and Intel MKL. (
 ### Execution
 First, perform a standard self-consistent field (SCF) calculation and generate the file containing the optical matrix elements. This file is typically `case.mommat2[up/dn]` in **WIEN2k** or `WAVEDER` in **VASP**. Guidance for this step is provided in the [Wiki page](https://github.com/rubel75/mstar/wiki).
 
-> **Note:** The numerical accuracy of the results depends critically on the number of empty bands included in the calculation. In **WIEN2k**, using an extended basis set (HELOs) yields the most accurate results. However, this approach requires computing *all* eigenstates of the Hamiltonian, which can be computationally intensive. For further details, see the [WIEN2k-specific instructions](https://github.com/rubel75/mstar/wiki/Generate-case.mommat2-file-in-WIEN2k).
+> **Note:** The numerical accuracy of the results depends critically on the number of empty bands included in the calculation. The most accurate results can be obtained in **WIEN2k** by using an extended basis set (HELOs). However, this requires computing *all* eigenstates of the Hamiltonian, which can be computationally intensive. For further details, see the [WIEN2k-specific instructions](https://github.com/rubel75/mstar/wiki/Generate-case.mommat2-file-in-WIEN2k).
 
 Once the optical matrix element file is generated, proceed with the next step by executing:
 
