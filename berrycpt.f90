@@ -770,7 +770,7 @@ DO ispin = 1, nstot
                         CASE DEFAULT
                     END SELECT
                     ldg = .FALSE.
-                    bandsup: DO n = nvb+1, nb
+                    bandsup: DO n = 1, nb
                         ! extract complex part of the product
                         ! take into account that i*5i = -5
                         ! Here the second pij is left _intentionaly_ spin up+dn
@@ -858,7 +858,7 @@ DO ispin = 1, nstot
                         CASE DEFAULT
                     END SELECT
                     ldg = .FALSE.
-                    bandsdn: DO n = nvb+1, nb
+                    bandsdn: DO n = 1, nb
                         ! extract complex part of the product
                         ! take into account that i*5i = -5
                         ! Here the second pij is left _intentionaly_ spin up+dn
@@ -946,7 +946,7 @@ DO ispin = 1, nstot
                         CASE DEFAULT
                     END SELECT
                     ldg = .FALSE.
-                    bandsdn2: DO n = nvb+1, nb
+                    bandsdn2: DO n = 1, nb
                         ! extract complex part of the product
                         ! take into account that i*5i = -5
                         ! Here the second pij is left _intentionaly_ spin up+dn
