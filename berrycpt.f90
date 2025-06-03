@@ -123,6 +123,17 @@ LOGICAL :: &
     spinor, & ! the wave function is a spinor
     ldg ! encountered degenerate states
 
+!! External subroutines
+
+EXTERNAL :: &
+    read_numlines, &
+    read_numlines_vasp, &
+    read_mommat_pij, &
+    read_mommat_pij_vasp, &
+    read_mommat_nb, &
+    degenbc, &
+    degenoam
+
 !! Get command line input arguments
 
 DO i = 1, iargc() ! loop through all command line arguments to search for help

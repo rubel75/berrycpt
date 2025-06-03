@@ -30,6 +30,11 @@ CHARACTER(len=1), PARAMETER :: &
     uplo='U', & ! stores the upper triangular part of A
     jobz = 'V' ! compute eigenvectors too
 
+!! External subroutines
+
+EXTERNAL :: &
+    ssyevd
+
 !! Reassign H to another variable to avoid it being overwritten
 
 A = H

@@ -29,6 +29,10 @@ INTEGER :: &
     i, j, & ! counter
     ndg ! number of degenerate bands
 
+!! External subroutines
+
+EXTERNAL :: &
+    eigvs
 
 !! construct M matrix
 
