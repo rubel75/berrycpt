@@ -1,16 +1,23 @@
-SUBROUTINE eigvs(n, H, & ! <- args in 
+SUBROUTINE eigvd(n, H, & ! <- args in 
             EIGV) ! -> args out
 
-! Solve a _real_ matrix eigenvalue problem
+! Solve a _real_ matrix eigenvalue problem double precision
+
+implicit none
+
+!! Constants internal
+
+INTEGER, PARAMETER :: &
+    sp = KIND(1.0E0), & ! single precision
+    dp = KIND(1.0D0) ! double precision
 
 !! Variables in-out
 
-implicit none
 INTEGER, intent(in) :: &
     n ! size of H matrixs
-REAL(kind=4), intent(in) :: &
+REAL(kind=dp), intent(in) :: &
     H(n,n) ! square matrix
-REAL(kind=4), intent(out) :: &
+REAL(kind=dp), intent(out) :: &
     EIGV(n) ! eigenvalues
 
 !! Internal variables
@@ -19,9 +26,9 @@ INTEGER :: &
     lwork, liwork, & ! The size of the work arrays
     info ! status argument
 INTEGER, ALLOCATABLE :: iwork(:) ! The size of the work array (lwork>=n)
-REAL(kind=4) :: &
+REAL(kind=dp) :: &
     A(n,n) ! used for H matrix and then overwritten by eigenvectors
-REAL(kind=4), ALLOCATABLE :: &
+REAL(kind=dp), ALLOCATABLE :: &
     work(:) ! workspace array
 
 !! Parameters
@@ -33,7 +40,7 @@ CHARACTER(len=1), PARAMETER :: &
 !! External subroutines
 
 EXTERNAL :: &
-    ssyevd
+    dsyevd ! Intel MKL
 
 !! Reassign H to another variable to avoid it being overwritten
 
@@ -44,8 +51,8 @@ A = H
 lwork = -1
 liwork = -1
 allocate( work(1), iwork(1) )
-!call dsyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! double precision (kind=8)
-call ssyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! single precision (kind=4)
+call dsyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! double precision (kind=8)
+!call ssyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! single precision (kind=4)
 IF (info .ne. 0) THEN
     write (*,*) "ERROR in ssyevd (1st call): info = ", info
     write (*,*) "If info = -i, the i-th parameter had an illegal value."
@@ -61,8 +68,8 @@ deallocate ( work, iwork )
 !! Solve eigenvalues problem
 
 allocate( work(lwork), iwork(liwork) )
-!call dsyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! double precision (kind=8)
-call ssyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! single precision (kind=4)
+call dsyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! double precision (kind=8)
+!call ssyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! single precision (kind=4)
 deallocate ( work, iwork )
 IF (info .ne. 0) THEN
     write (*,*) "ERROR in ssyevd (2nd call): info = ", info
@@ -75,4 +82,4 @@ END IF
 ! eigenvectors are returned through A-matrix are not used
 
 RETURN
-END SUBROUTINE eigvs
+END SUBROUTINE eigvd

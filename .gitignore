@@ -3,6 +3,7 @@
 
 # Fortran module files
 *.mod
+*__genmod.*
 
 # Executables
 berrycpt

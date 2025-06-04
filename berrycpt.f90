@@ -61,7 +61,16 @@ PROGRAM berrycpt
 
 USE OMP_LIB
 
-implicit none
+IMPLICIT NONE
+
+!! Constants
+
+INTEGER, PARAMETER :: &
+    sp = KIND(1.0E0), & ! single precision
+    dp = KIND(1.0D0) ! double precision
+
+!! Variables
+
 CHARACTER(len=256) :: &
     arg1, arg2, arg3, arg4, & ! command line input arguments
     fnameinp, & ! input file with momentum or dipole matrix elements
@@ -86,32 +95,34 @@ INTEGER :: &
               ! is calculated
               ! In WIEN2k we set it = to the total number of bands
               ! In VASP it is set in WAVEDER file as NBANDS_CDER
-    ivb, i, j, ikpt, & ! counters
+    ivb, i, j, ikpt, m, & ! counters
     idg1, idg2, & ! intext of the first and last degenerate state in the block
     n, & ! band indices
     nvb, & ! number of occupied bands [1:nvb]
     nvbinpt, & ! inputed number of occupied bands [1:nvb]
     ivoigt, & ! Voigt index (1..6)
     alpha, beta, & ! Cartesian directions 1,2,3 = x,y,z
-    ierr ! error code
+    ierr, & ! error code
+    ngroups, & ! number of groups of degenerate energies
+    ig, & ! group index
+    nmg ! number of bands as members in a degenerate group
 INTEGER, ALLOCATABLE :: &
-    nbocck(:,:) ! k- and spin-resolved number of occupied bands
-REAL(kind=4) :: &
-    dE, & ! energy difference [Ha]
+    nbocck(:,:), & ! k- and spin-resolved number of occupied bands
+    dg_group(:), & ! assignment of each band to a group of degenerate bands
+    members(:) ! list of bands that are members of a degenerate group
+REAL(kind=sp) :: &
     efermi ! Fermi energy in [eV]
-REAL(kind=4), ALLOCATABLE :: &
+REAL(kind=sp), ALLOCATABLE :: &
     dEij(:,:), & ! energy differences E_i-E_j [Ha]
     dEijdg(:,:), & ! energy differences E_i-E_j [Ha] for degenerate bands
     dEijUP(:,:), dEijDN(:,:), & ! ... for up/dn components (WIEN2k)
-    dEijks(:,:,:,:), & ! k- and spin-dependent energy differences E_i-E_j [Ha]
+    dEijks(:,:,:,:) ! k- and spin-dependent energy differences E_i-E_j [Ha]
+REAL(kind=dp), ALLOCATABLE :: &
     bcurv(:,:), & ! array to store Berry curvature
     bcurvdg(:), & ! array to store Berry curvature of a block of degenerate bands
     oam(:,:), & ! array to store orbital angular momentum (OAM)
-    oamdg(:), & ! array to store OAM of a block of degenerate bands
-    omega, & ! Berry curvature (intermediate)
-    Lnln, & ! OAM (intermediate)
-    p2 ! product of momentum matrix elements
-COMPLEX(kind=4), ALLOCATABLE :: &
+    oamdg(:) ! array to store OAM of a block of degenerate bands
+COMPLEX(kind=sp), ALLOCATABLE :: &
     pij(:,:,:), & ! momentum matrix elements [at.u.]
     pijA(:,:), pijB(:,:), & ! subset of momentum matrix elements [at.u.] for degenerate bands
     pijUP(:,:,:), pijDN(:,:,:), & ! ... for up/dn components (WIEN2k)
@@ -120,8 +131,7 @@ LOGICAL :: &
     fmommatend, & ! end of mommat file
     file_exists, &
     wien2k, & ! true if this is a WIEN2k calculation
-    spinor, & ! the wave function is a spinor
-    ldg ! encountered degenerate states
+    spinor ! the wave function is a spinor
 
 !! External subroutines
 
@@ -132,7 +142,9 @@ EXTERNAL :: &
     read_mommat_pij_vasp, &
     read_mommat_nb, &
     degenbc, &
-    degenoam
+    degenoam, &
+    finddegenblocks, &
+    vdSum ! Intel MKL
 
 !! Get command line input arguments
 
@@ -504,11 +516,16 @@ DO ispin = 1, nstot
             nvb = nbocck(ikpt,ispin)
         END IF
 
-        ! Handle situation when the degenerate block extends past 'nvb'
-        ivb = nvb
+        !! Identify band degeneracies
+
+        ALLOCATE( dg_group(nb) )
+        CALL finddegenblocks(nb, dEij, 1.0e-5, & ! <- args in 
+            dg_group, ngroups) ! -> args out
+
+        !! Handle situation when the degenerate block extends past 'nvb'
+
         DO n = nvb+1, nb
-            dE = dEij(ivb,n)
-            IF (ABS(dE) > 1.0e-5) THEN ! the energy difference is significant
+            IF (dg_group(nvb) .NE. dg_group(n)) THEN ! end of deceneracy group
                 IF (n-1 > nvb) THEN
                     WRITE(*,'(A,I0,A,I0,A,I0,A)') 'WARNING: While processing ' &
                         //'k-point ', ikpt, &
@@ -551,107 +568,62 @@ DO ispin = 1, nstot
         ! curvature and OAM tensor (4=yz; 5=xz; 6=xy) are not = 0
         ALLOCATE( bcurv(nvb,3) )
         ALLOCATE( oam(nvb,3) )
-        bcurv = 0.0
-        oam = 0.0
-        idg1 = 0 ! init. degeneracy indices
-        idg2 = 0
-        DO ivb = 1,nvb
-            IF (ivb >= idg1 .and. ivb <= idg2) THEN
-                CYCLE ! no need to cycle within degeneracy bands
-            END IF
-            ! loop over Voigt indecies: 1=xx; 2=yy; 3=zz; 4=yz; 5=xz; 6=xy
-            DO ivoigt = 4,6
+        bcurv = 0.0_dp
+        oam = 0.0_dp
+        ! Loop over groups of degenerate bands in the range of [1:nvb].
+        ! Even if a band is not degenerate, it is still considered as
+        ! degeneracy of the size 1.
+        DO ig = 1, dg_group(nvb)
+            nmg = COUNT(dg_group == ig) ! number of group members
+            ALLOCATE( members(nmg) )
+            ! get bands that are members of the group
+            m = 0
+            DO n = 1, nb
+                IF (dg_group(n) == ig) THEN
+                    m = m + 1
+                    members(m) = n
+                END IF
+            END DO
+            ! loop over Voigt indecies
+            DO ivoigt = 4, 6
                 ! handle Voigt notations
                 SELECT CASE (ivoigt)
-                    CASE (4) ! 4=yz
-                        alpha = 2
-                        beta = 3
-                    CASE (5) ! 5=xz
-                        alpha = 1
-                        beta = 3
-                    CASE (6) ! 6=xy
-                        alpha = 1
-                        beta = 2
-                    CASE DEFAULT
+                    CASE (4); alpha = 2; beta = 3 ! 4=yz
+                    CASE (5); alpha = 1; beta = 3 ! 5=xz
+                    CASE (6); alpha = 1; beta = 2 ! 6=xy
                 END SELECT
-                ldg = .FALSE.
-                bands: DO n = 1, nb
-                    ! extract complex part of the product
-                    ! take into account that i*5i = -5
-                    p2 = (-2.0) * AIMAG( pij(alpha,ivb,n)*pij(beta,n,ivb))
-                    dE = dEij(ivb,n)
-                    ! TODO: change 1.0e-5 to "etol" variable
-                    IF (ABS(dE) > 1.0e-5) THEN ! ingnore degenerate bands
-                        omega = p2/(dE*dE)
-                        Lnln = - p2/dE
-                        ! make sure omega is finite (not NaN and not Inf)
-                        IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
-                            WRITE(*,*) 'ikpt =', ikpt
-                            WRITE(*,*) 'ivb =', ivb
-                            WRITE(*,*) 'n =', n
-                            WRITE(*,*) 'alpha =', alpha
-                            WRITE(*,*) 'beta =', beta
-                            WRITE(*,*) 'pij(alpha,ivb,n) =', &
-                                pij(alpha,ivb,n)
-                            WRITE(*,*) 'pij(beta,n,ivb) =', &
-                                pij(beta,n,ivb)
-                            WRITE(*,*) 'dEij(ivb,n) =', dEij(ivb,n)
-                            WRITE(*,*) 'omega = ', omega
-                            WRITE(*,*) 'dE = ', dE
-                            WRITE(*,*) 'p2 = ', p2
-                            ERROR STOP 'Error: omega is not finite'
-                        ELSEIF (Lnln /= Lnln .or. abs(Lnln) > HUGE(abs(Lnln))) THEN
-                            WRITE(*,*) 'ikpt =', ikpt
-                            WRITE(*,*) 'ivb =', ivb
-                            WRITE(*,*) 'n =', n
-                            WRITE(*,*) 'alpha =', alpha
-                            WRITE(*,*) 'beta =', beta
-                            WRITE(*,*) 'pij(alpha,ivb,n) =', &
-                                pij(alpha,ivb,n)
-                            WRITE(*,*) 'pij(beta,n,ivb) =', &
-                                pij(beta,n,ivb)
-                            WRITE(*,*) 'dEij(ivb,n) =', dEij(ivb,n)
-                            WRITE(*,*) 'Lnln = ', Lnln
-                            WRITE(*,*) 'dE = ', dE
-                            WRITE(*,*) 'p2 = ', p2
-                            ERROR STOP 'Error: Lnln is not finite'
-                        END IF
-                        ! update Mnm array
-                        bcurv(ivb,ivoigt-3) = bcurv(ivb,ivoigt-3) + omega
-                        oam(ivb,ivoigt-3) = oam(ivb,ivoigt-3) + Lnln
-                        IF (ldg) THEN ! endeding of degenerate block
-                            ldg = .FALSE.
-                            idg2 = MAX(n-1, ivb)
-                            IF (idg1 .ge. idg2) THEN
-                                ERROR STOP 'Wrong boundaries of the degenerate block'
-                            END IF
-                            ALLOCATE( bcurvdg(1+idg2-idg1), &
-                                oamdg(1+idg2-idg1), &
-                                pijA(1+idg2-idg1,nb), pijB(nb,1+idg2-idg1), &
-                                dEijdg(1+idg2-idg1,nb))
-                            pijA = pij(alpha,idg1:idg2,:)
-                            pijB = pij(beta,:,idg1:idg2)
-                            dEijdg = dEij(idg1:idg2,:)
-                            CALL degenbc(nb, idg1, idg2, & ! <- args in 
-                                pijA, pijB, dEijdg, & ! <- args in 
-                                bcurvdg) ! -> args out
-                            bcurv(idg1:idg2,ivoigt-3) = bcurvdg
-                            CALL degenoam(nb, idg1, idg2, & ! <- args in 
-                                pijA, pijB, dEijdg, & ! <- args in 
-                                oamdg) ! -> args out
-                            oam(idg1:idg2,ivoigt-3) = oamdg
-                            DEALLOCATE(bcurvdg, oamdg, pijA, pijB, dEijdg)
-                            EXIT bands ! DO loop
-                        END IF
-                    ELSEIF (ABS(dE) < 1.0e-5 .and. ivb /= n) THEN ! degenerate bands
-                        IF (.not. ldg) THEN ! beggining of degenerate block
-                            ldg = .TRUE.
-                            idg1 = MIN(n, ivb)
-                        END IF
-                    END IF
-                END DO bands! loop over 'n'
+                ! degenerate group 1st and last band
+                idg1 = members(1)
+                idg2 = members(nmg)
+                IF (idg1 .GT. idg2) THEN
+                    WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
+                    ERROR STOP 'Wrong boundaries of the degenerate block'
+                END IF
+                ! allocate group-specific arrays
+                ALLOCATE( bcurvdg(nmg), oamdg(nmg), pijA(nmg,nb), &
+                    pijB(nb,nmg), dEijdg(nmg,nb) )
+                ! get group-specific matrix elements and energies
+                DO m = 1, nmg
+                    pijA(m,:) = pij(alpha, members(m), :)
+                    pijB(:,m) = pij(beta, :, members(m))
+                    dEijdg(m,:) = dEij(members(m), :)
+                END DO
+                ! solve degenerate PT problem
+                CALL degenbc(nb, idg1, idg2, & ! <- args in
+                    pijA, pijB, dEijdg, & ! <- args in 
+                    bcurvdg) ! -> args out
+                CALL degenoam(nb, idg1, idg2, & ! <- args in
+                    pijA, pijB, dEijdg, & ! <- args in 
+                    oamdg) ! -> args out
+                ! store group result for the Berry curvature and OAM in array
+                DO m = 1, nmg
+                    bcurv(members(m), ivoigt-3) = bcurvdg(m)
+                    oam(members(m), ivoigt-3) = oamdg(m)
+                END DO
+                DEALLOCATE(pijA, pijB, dEijdg, bcurvdg, oamdg)
             END DO ! loop over 'ivoigt'
-        END DO ! loop over 'ivb'
+            DEALLOCATE( members)
+        END DO ! loop over 'ig'
         ! store the Berry curvature and OAM band-by-band for all occupied states
         DO ivb = 1, nvb
             WRITE(2,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
@@ -670,85 +642,58 @@ DO ispin = 1, nstot
         !    ... sum_m 2*Im[p_{nm}^{up,up}*p_{mn}^{up,up}]/(E_n - E_m)
         ! in atomic units
         ALLOCATE( oam(nvb,3) )
-        oam = 0.0
-        idg1 = 0 ! init. degeneracy indices
-        idg2 = 0
-        DO ivb = 1,nvb
-            IF (ivb >= idg1 .and. ivb <= idg2) THEN
-                CYCLE ! no need to cycle within degeneracy bands
-            END IF
-            ! loop over Voigt indecies: 1=xx; 2=yy; 3=zz; 4=yz; 5=xz; 6=xy
-            DO ivoigt = 4,6
+        oam = 0.0_dp
+        ! Loop over groups of degenerate bands in the range of [1:nvb].
+        ! Even if a band is not degenerate, it is still considered as
+        ! degeneracy of the size 1.
+        DO ig = 1, dg_group(nvb)
+            nmg = COUNT(dg_group == ig) ! number of group members
+            ALLOCATE( members(nmg) )
+            ! get bands that are members of the group
+            m = 0
+            DO n = 1, nb
+                IF (dg_group(n) == ig) THEN
+                    m = m + 1
+                    members(m) = n
+                END IF
+            END DO
+            ! loop over Voigt indecies
+            DO ivoigt = 4, 6
                 ! handle Voigt notations
                 SELECT CASE (ivoigt)
-                    CASE (4) ! 4=yz
-                        alpha = 2
-                        beta = 3
-                    CASE (5) ! 5=xz
-                        alpha = 1
-                        beta = 3
-                    CASE (6) ! 6=xy
-                        alpha = 1
-                        beta = 2
-                    CASE DEFAULT
+                    CASE (4); alpha = 2; beta = 3 ! 4=yz
+                    CASE (5); alpha = 1; beta = 3 ! 5=xz
+                    CASE (6); alpha = 1; beta = 2 ! 6=xy
                 END SELECT
-                ldg = .FALSE.
-                bandsaomup: DO n = 1, nb
-                    ! extract complex part of the product
-                    ! take into account that i*5i = -5
-                    p2 = (-2.0) * AIMAG( pijUP(alpha,ivb,n)*pijUP(beta,n,ivb))
-                    dE = dEij(ivb,n)
-                    ! TODO: change 1.0e-5 to "etol" variable
-                    IF (ABS(dE) > 1.0e-5) THEN ! ingnore degenerate bands
-                        Lnln = - p2/dE
-                        ! make sure Lnln is finite (not NaN and not Inf)
-                        IF  (Lnln /= Lnln .or. abs(Lnln) > HUGE(abs(Lnln))) THEN
-                            WRITE(*,*) 'ikpt =', ikpt
-                            WRITE(*,*) 'ivb =', ivb
-                            WRITE(*,*) 'n =', n
-                            WRITE(*,*) 'alpha =', alpha
-                            WRITE(*,*) 'beta =', beta
-                            WRITE(*,*) 'pij(alpha,ivb,n) =', &
-                                pij(alpha,ivb,n)
-                            WRITE(*,*) 'pij(beta,n,ivb) =', &
-                                pij(beta,n,ivb)
-                            WRITE(*,*) 'dEij(ivb,n) =', dEij(ivb,n)
-                            WRITE(*,*) 'Lnln = ', Lnln
-                            WRITE(*,*) 'dE = ', dE
-                            WRITE(*,*) 'p2 = ', p2
-                            ERROR STOP 'Error: Lnln is not finite'
-                        END IF
-                        ! update Mnm array
-                        oam(ivb,ivoigt-3) = oam(ivb,ivoigt-3) + Lnln
-                        IF (ldg) THEN ! endeding of degenerate block
-                            ldg = .FALSE.
-                            idg2 = MAX(n-1, ivb)
-                            IF (idg1 .ge. idg2) THEN
-                                ERROR STOP 'Wrong boundaries of the degenerate block'
-                            END IF
-                            ALLOCATE( oamdg(1+idg2-idg1), &
-                                pijA(1+idg2-idg1,nb), pijB(nb,1+idg2-idg1), &
-                                dEijdg(1+idg2-idg1,nb))
-                            pijA = pijUP(alpha,idg1:idg2,:)
-                            pijB = pijUP(beta,:,idg1:idg2)
-                            dEijdg = dEij(idg1:idg2,:)
-                            CALL degenoam(nb, idg1, idg2, & ! <- args in 
-                                pijA, pijB, dEijdg, & ! <- args in 
-                                oamdg) ! -> args out
-                            oam(idg1:idg2,ivoigt-3) = oamdg
-                            DEALLOCATE(oamdg, pijA, pijB, dEijdg)
-                            EXIT bandsaomup ! DO loop
-                        END IF
-                    ELSEIF (ABS(dE) < 1.0e-5 .and. ivb /= n) THEN ! degenerate bands
-                        IF (.not. ldg) THEN ! beggining of degenerate block
-                            ldg = .TRUE.
-                            idg1 = MIN(n, ivb)
-                        END IF
-                    END IF
-                END DO bandsaomup! loop over 'n'
+                ! degenerate group 1st and last band
+                idg1 = members(1)
+                idg2 = members(nmg)
+                IF (idg1 .GT. idg2) THEN
+                    WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
+                    ERROR STOP 'Wrong boundaries of the degenerate block'
+                END IF
+                ! allocate group-specific arrays
+                ALLOCATE( oamdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
+                    dEijdg(nmg,nb))
+                ! get group-specific matrix elements and energies
+                DO m = 1, nmg
+                    pijA(m,:) = pijUP(alpha, members(m), :)
+                    pijB(:,m) = pijUP(beta, :, members(m))
+                    dEijdg(m,:) = dEij(members(m), :)
+                END DO
+                ! solve degenerate PT problem
+                CALL degenoam(nb, idg1, idg2, & ! <- args in
+                    pijA, pijB, dEijdg, & ! <- args in 
+                    oamdg) ! -> args out
+                ! store group result for OAM in array
+                DO m = 1, nmg
+                    oam(members(m), ivoigt-3) = oamdg(m)
+                END DO
+                DEALLOCATE(pijA, pijB, dEijdg, oamdg)
             END DO ! loop over 'ivoigt'
-        END DO ! loop over 'ivb'
-        ! store OAM band-by-band for [1:nvb] states
+            DEALLOCATE( members)
+        END DO ! loop over 'ig'
+        ! store OAM band-by-band for all occupied states
         DO ivb = 1, nvb
             WRITE(31,TRIM(wformat2)) ivb, (oam(ivb,j), j=1,3)
         END DO
@@ -758,84 +703,57 @@ DO ispin = 1, nstot
         IF ( wien2k .AND. spinor ) THEN
             ! spin UP Berry curvature
             ALLOCATE( bcurv(nvb,3) )
-            bcurv = 0.0
-            idg1 = 0 ! init. degeneracy indices
-            idg2 = 0
-            DO ivb = 1,nvb
-                IF (ivb >= idg1 .and. ivb <= idg2) THEN
-                    CYCLE ! no need to cycle within degeneracy bands
-                END IF
-                ! loop over Voigt indecies: 4=yz; 5=xz; 6=xy
-                DO ivoigt = 4,6
+            bcurv = 0.0_dp
+            ! Loop over groups of degenerate bands in the range of [1:nvb].
+            ! Even if a band is not degenerate, it is still considered as
+            ! degeneracy of the size 1.
+            DO ig = 1, dg_group(nvb)
+                nmg = COUNT(dg_group == ig) ! number of group members
+                ALLOCATE( members(nmg) )
+                ! get bands that are members of the group
+                m = 0
+                DO n = 1, nb
+                    IF (dg_group(n) == ig) THEN
+                        m = m + 1
+                        members(m) = n
+                    END IF
+                END DO
+                ! loop over Voigt indecies
+                DO ivoigt = 4, 6
                     ! handle Voigt notations
                     SELECT CASE (ivoigt)
-                        CASE (4) ! 4=yz
-                            alpha = 2
-                            beta = 3
-                        CASE (5) ! 5=xz
-                            alpha = 1
-                            beta = 3
-                        CASE (6) ! 6=xy
-                            alpha = 1
-                            beta = 2
-                        CASE DEFAULT
+                        CASE (4); alpha = 2; beta = 3 ! 4=yz
+                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (6); alpha = 1; beta = 2 ! 6=xy
                     END SELECT
-                    ldg = .FALSE.
-                    bandsup: DO n = 1, nb
-                        ! extract complex part of the product
-                        ! take into account that i*5i = -5
-                        ! Here the second pij is left _intentionaly_ spin up+dn
-                        p2 = (-2.0) * AIMAG( pijUP(alpha,ivb,n)*pij(beta,n,ivb))
-                        dE = dEij(ivb,n)
-                        IF (ABS(dE) > 1.0e-5) THEN ! ingnore degenerate bands
-                            omega = p2/(dE*dE)
-                            ! make sure omega is finite (not NaN and not Inf)
-                            IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
-                                WRITE(*,*) 'ikpt =', ikpt
-                                WRITE(*,*) 'ivb =', ivb
-                                WRITE(*,*) 'n =', n
-                                WRITE(*,*) 'alpha =', alpha
-                                WRITE(*,*) 'beta =', beta
-                                WRITE(*,*) 'pijUP(alpha,ivb,n) =', &
-                                    pijUP(alpha,ivb,n)
-                                WRITE(*,*) 'pij(beta,n,ivb) =', &
-                                    pij(beta,n,ivb)
-                                WRITE(*,*) 'dEij(ivb,n) =', dEij(ivb,n)
-                                WRITE(*,*) 'omega = ', omega
-                                WRITE(*,*) 'dE = ', dE
-                                WRITE(*,*) 'p2 = ', p2
-                                ERROR STOP 'Error: omega is not finite'
-                            END IF
-                            ! update Mnm array
-                            bcurv(ivb,ivoigt-3) = bcurv(ivb,ivoigt-3) + omega
-                            IF (ldg) THEN ! endeding of degenerate block
-                                ldg = .FALSE.
-                                idg2 = MAX(n-1, ivb)
-                                IF (idg1 .ge. idg2) THEN
-                                    ERROR STOP 'Wrong boundaries of the degenerate block'
-                                END IF
-                                ALLOCATE( bcurvdg(1+idg2-idg1), &
-                                    pijA(1+idg2-idg1,nb), pijB(nb,1+idg2-idg1), &
-                                    dEijdg(1+idg2-idg1,nb))
-                                pijA = pijUP(alpha,idg1:idg2,:)
-                                pijB = pij(beta,:,idg1:idg2)
-                                dEijdg = dEij(idg1:idg2,:)
-                                CALL degenbc(nb, idg1, idg2, & ! <- args in 
-                                    pijA, pijB, dEijdg, & ! <- args in 
-                                    bcurvdg) ! -> args out
-                                bcurv(idg1:idg2,ivoigt-3) = bcurvdg
-                                DEALLOCATE(bcurvdg, pijA, pijB, dEijdg)
-                                EXIT bandsup ! DO loop
-                            END IF
-                        ELSEIF (ABS(dE) < 1.0e-5 .and. ivb /= n) THEN ! degenerate bands
-                            IF (.not. ldg) THEN ! beggining of degenerate block
-                                ldg = .TRUE.
-                                idg1 = MIN(n, ivb)
-                            END IF
-                        END IF
-                    END DO bandsup ! loop over 'n'
+                    ! degenerate group 1st and last band
+                    idg1 = members(1)
+                    idg2 = members(nmg)
+                    IF (idg1 .GT. idg2) THEN
+                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
+                        ERROR STOP 'Wrong boundaries of the degenerate block'
+                    END IF
+                    ! allocate group-specific arrays
+                    ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
+                        dEijdg(nmg,nb))
+                    ! get group-specific matrix elements and energies
+                    DO m = 1, nmg
+                        pijA(m,:) = pijUP(alpha, members(m), :)
+                        pijB(:,m) = pij(beta, :, members(m))
+                        dEijdg(m,:) = dEij(members(m), :)
+                    END DO
+                    ! solve degenerate PT problem
+                    CALL degenbc(nb, idg1, idg2, & ! <- args in
+                        pijA, pijB, dEijdg, & ! <- args in 
+                        bcurvdg) ! -> args out
+                    ! store group result for the Berry curvature in array
+                    DO m = 1, nmg
+                        bcurv(members(m), ivoigt-3) = bcurvdg(m)
+                    END DO
+                    DEALLOCATE(pijA, pijB, dEijdg, bcurvdg)
                 END DO ! loop over 'ivoigt'
-            END DO ! loop over 'ivb'
+                DEALLOCATE( members)
+            END DO ! loop over 'ig'
             ! store the Berry curvature band-by-band for all occupied states
             DO ivb = 1, nvb
                 WRITE(21,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
@@ -843,87 +761,60 @@ DO ispin = 1, nstot
             ! store the total Berry curvature for all occupied states
             WRITE(21,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
             DEALLOCATE( bcurv )
-            
+
             ! spin DN Berry curvature
             ALLOCATE( bcurv(nvb,3) )
-            bcurv = 0.0
-            idg1 = 0 ! init. degeneracy indices
-            idg2 = 0
-            DO ivb = 1,nvb
-                IF (ivb >= idg1 .and. ivb <= idg2) THEN
-                    CYCLE ! no need to cycle within degeneracy bands
-                END IF
-                ! loop over Voigt indecies: 4=yz; 5=xz; 6=xy
-                DO ivoigt = 4,6
+            bcurv = 0.0_dp
+            ! Loop over groups of degenerate bands in the range of [1:nvb].
+            ! Even if a band is not degenerate, it is still considered as
+            ! degeneracy of the size 1.
+            DO ig = 1, dg_group(nvb)
+                nmg = COUNT(dg_group == ig) ! number of group members
+                ALLOCATE( members(nmg) )
+                ! get bands that are members of the group
+                m = 0
+                DO n = 1, nb
+                    IF (dg_group(n) == ig) THEN
+                        m = m + 1
+                        members(m) = n
+                    END IF
+                END DO
+                ! loop over Voigt indecies
+                DO ivoigt = 4, 6
                     ! handle Voigt notations
                     SELECT CASE (ivoigt)
-                        CASE (4) ! 4=yz
-                            alpha = 2
-                            beta = 3
-                        CASE (5) ! 5=xz
-                            alpha = 1
-                            beta = 3
-                        CASE (6) ! 6=xy
-                            alpha = 1
-                            beta = 2
-                        CASE DEFAULT
+                        CASE (4); alpha = 2; beta = 3 ! 4=yz
+                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (6); alpha = 1; beta = 2 ! 6=xy
                     END SELECT
-                    ldg = .FALSE.
-                    bandsdn: DO n = 1, nb
-                        ! extract complex part of the product
-                        ! take into account that i*5i = -5
-                        ! Here the second pij is left _intentionaly_ spin up+dn
-                        p2 = (-2.0) * AIMAG( pijDN(alpha,ivb,n)*pij(beta,n,ivb))
-                        dE = dEij(ivb,n)
-                        IF (ABS(dE) > 1.0e-5) THEN ! ingnore degenerate bands
-                            omega = p2/(dE*dE)
-                            ! make sure omega is finite (not NaN and not Inf)
-                            IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
-                                WRITE(*,*) 'ikpt =', ikpt
-                                WRITE(*,*) 'ivb =', ivb
-                                WRITE(*,*) 'n =', n
-                                WRITE(*,*) 'alpha =', alpha
-                                WRITE(*,*) 'beta =', beta
-                                WRITE(*,*) 'pijDN(alpha,ivb,n) =', &
-                                    pijDN(alpha,ivb,n)
-                                WRITE(*,*) 'pij(beta,n,ivb) =', &
-                                    pij(beta,n,ivb)
-                                WRITE(*,*) 'dEij(ivb,n) =', dEij(ivb,n)
-                                WRITE(*,*) 'omega = ', omega
-                                WRITE(*,*) 'dE = ', dE
-                                WRITE(*,*) 'p2 = ', p2
-                                ERROR STOP 'Error: omega is not finite'
-                            END IF
-                            ! update Mnm array
-                            bcurv(ivb,ivoigt-3) = bcurv(ivb,ivoigt-3) + omega
-                            IF (ldg) THEN ! endeding of degenerate block
-                                ldg = .FALSE.
-                                idg2 = MAX(n-1, ivb)
-                                IF (idg1 .ge. idg2) THEN
-                                    ERROR STOP 'Wrong boundaries of the degenerate block'
-                                END IF
-                                ALLOCATE( bcurvdg(1+idg2-idg1), &
-                                    pijA(1+idg2-idg1,nb), pijB(nb,1+idg2-idg1), &
-                                    dEijdg(1+idg2-idg1,nb))
-                                pijA = pijDN(alpha,idg1:idg2,:)
-                                pijB = pij(beta,:,idg1:idg2)
-                                dEijdg = dEij(idg1:idg2,:)
-                                CALL degenbc(nb, idg1, idg2, & ! <- args in 
-                                    pijA, pijB, dEijdg, & ! <- args in 
-                                    bcurvdg) ! -> args out
-                                bcurv(idg1:idg2,ivoigt-3) = bcurvdg
-                                DEALLOCATE(bcurvdg, pijA, pijB, dEijdg)
-                                EXIT bandsdn ! DO loop
-                            END IF
-                        ELSEIF (ABS(dE) < 1.0e-5 .and. ivb /= n) THEN ! degenerate bands
-                            IF (.not. ldg) THEN ! beggining of degenerate block
-                                ldg = .TRUE.
-                                idg1 = MIN(n, ivb)
-                            END IF
-                        END IF
-                    END DO bandsdn ! loop over 'n'
+                    ! degenerate group 1st and last band
+                    idg1 = members(1)
+                    idg2 = members(nmg)
+                    IF (idg1 .GT. idg2) THEN
+                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
+                        ERROR STOP 'Wrong boundaries of the degenerate block'
+                    END IF
+                    ! allocate group-specific arrays
+                    ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
+                        dEijdg(nmg,nb))
+                    ! get group-specific matrix elements and energies
+                    DO m = 1, nmg
+                        pijA(m,:) = pijDN(alpha, members(m), :)
+                        pijB(:,m) = pij(beta, :, members(m))
+                        dEijdg(m,:) = dEij(members(m), :)
+                    END DO
+                    ! solve degenerate PT problem
+                    CALL degenbc(nb, idg1, idg2, & ! <- args in
+                        pijA, pijB, dEijdg, & ! <- args in 
+                        bcurvdg) ! -> args out
+                    ! store group result for the Berry curvature in array
+                    DO m = 1, nmg
+                        bcurv(members(m), ivoigt-3) = bcurvdg(m)
+                    END DO
+                    DEALLOCATE(pijA, pijB, dEijdg, bcurvdg)
                 END DO ! loop over 'ivoigt'
-            END DO ! loop over 'ivb'
+                DEALLOCATE( members)
+            END DO ! loop over 'ig'
             ! store the Berry curvature band-by-band for all occupied states
             DO ivb = 1, nvb
                 WRITE(22,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
@@ -934,87 +825,58 @@ DO ispin = 1, nstot
 
             ! spin UP-DN Berry curvature (Omega^z)
             ALLOCATE( bcurv(nvb,3) )
-            bcurv = 0.0
-            idg1 = 0 ! init. degeneracy indices
-            idg2 = 0
-            DO ivb = 1,nvb
-                IF (ivb >= idg1 .and. ivb <= idg2) THEN
-                    CYCLE ! no need to cycle within degeneracy bands
-                END IF
-                ! loop over Voigt indecies: 4=yz; 5=xz; 6=xy
-                DO ivoigt = 4,6
+            bcurv = 0.0_dp
+            ! Loop over groups of degenerate bands in the range of [1:nvb].
+            ! Even if a band is not degenerate, it is still considered as
+            ! degeneracy of the size 1.
+            DO ig = 1, dg_group(nvb)
+                nmg = COUNT(dg_group == ig) ! number of group members
+                ALLOCATE( members(nmg) )
+                ! get bands that are members of the group
+                m = 0
+                DO n = 1, nb
+                    IF (dg_group(n) == ig) THEN
+                        m = m + 1
+                        members(m) = n
+                    END IF
+                END DO
+                ! loop over Voigt indecies
+                DO ivoigt = 4, 6
                     ! handle Voigt notations
                     SELECT CASE (ivoigt)
-                        CASE (4) ! 4=yz
-                            alpha = 2
-                            beta = 3
-                        CASE (5) ! 5=xz
-                            alpha = 1
-                            beta = 3
-                        CASE (6) ! 6=xy
-                            alpha = 1
-                            beta = 2
-                        CASE DEFAULT
+                        CASE (4); alpha = 2; beta = 3 ! 4=yz
+                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (6); alpha = 1; beta = 2 ! 6=xy
                     END SELECT
-                    ldg = .FALSE.
-                    bandsdn2: DO n = 1, nb
-                        ! extract complex part of the product
-                        ! take into account that i*5i = -5
-                        ! Here the second pij is left _intentionaly_ spin up+dn
-                        p2 = (-2.0) * AIMAG( (pijUP(alpha,ivb,n) &!...
-                                - pijDN(alpha,ivb,n))*pij(beta,n,ivb))
-                        dE = dEij(ivb,n)
-                        IF (ABS(dE) > 1.0e-5) THEN ! ingnore degenerate bands
-                            omega = p2/(dE*dE)
-                            ! make sure omega is finite (not NaN and not Inf)
-                            IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
-                                WRITE(*,*) 'ikpt =', ikpt
-                                WRITE(*,*) 'ivb =', ivb
-                                WRITE(*,*) 'n =', n
-                                WRITE(*,*) 'alpha =', alpha
-                                WRITE(*,*) 'beta =', beta
-                                WRITE(*,*) 'pijUP(alpha,ivb,n) =', &
-                                    pijUP(alpha,ivb,n)
-                                WRITE(*,*) 'pijDN(alpha,ivb,n) =', &
-                                    pijDN(alpha,ivb,n)
-                                WRITE(*,*) 'pij(beta,n,ivb) =', &
-                                    pij(beta,n,ivb)
-                                WRITE(*,*) 'dEij(ivb,n) =', dEij(ivb,n)
-                                WRITE(*,*) 'omega = ', omega
-                                WRITE(*,*) 'dE = ', dE
-                                WRITE(*,*) 'p2 = ', p2
-                                ERROR STOP 'Error: omega is not finite'
-                            END IF
-                            ! update Mnm array
-                            bcurv(ivb,ivoigt-3) = bcurv(ivb,ivoigt-3) + omega
-                            IF (ldg) THEN ! endeding of degenerate block
-                                ldg = .FALSE.
-                                idg2 = MAX(n-1, ivb)
-                                IF (idg1 .ge. idg2) THEN
-                                    ERROR STOP 'Wrong boundaries of the degenerate block'
-                                END IF
-                                ALLOCATE( bcurvdg(1+idg2-idg1), &
-                                    pijA(1+idg2-idg1,nb), pijB(nb,1+idg2-idg1), &
-                                    dEijdg(1+idg2-idg1,nb))
-                                pijA = pijUP(alpha,idg1:idg2,:) - pijDN(alpha,idg1:idg2,:)
-                                pijB = pij(beta,:,idg1:idg2)
-                                dEijdg = dEij(idg1:idg2,:)
-                                CALL degenbc(nb, idg1, idg2, & ! <- args in 
-                                    pijA, pijB, dEijdg, & ! <- args in 
-                                    bcurvdg) ! -> args out
-                                bcurv(idg1:idg2,ivoigt-3) = bcurvdg
-                                DEALLOCATE(bcurvdg, pijA, pijB, dEijdg)
-                                EXIT bandsdn2 ! DO loop
-                            END IF
-                        ELSEIF (ABS(dE) < 1.0e-5 .and. ivb /= n) THEN ! degenerate bands
-                            IF (.not. ldg) THEN ! beggining of degenerate block
-                                ldg = .TRUE.
-                                idg1 = MIN(n, ivb)
-                            END IF
-                        END IF
-                    END DO bandsdn2 ! loop over 'n'
+                    ! degenerate group 1st and last band
+                    idg1 = members(1)
+                    idg2 = members(nmg)
+                    IF (idg1 .GT. idg2) THEN
+                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
+                        ERROR STOP 'Wrong boundaries of the degenerate block'
+                    END IF
+                    ! allocate group-specific arrays
+                    ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
+                        dEijdg(nmg,nb))
+                    ! get group-specific matrix elements and energies
+                    DO m = 1, nmg
+                        pijA(m,:) = pijUP(alpha, members(m), :) - &!...
+                            pijDN(alpha, members(m), :)
+                        pijB(:,m) = pij(beta, :, members(m))
+                        dEijdg(m,:) = dEij(members(m), :)
+                    END DO
+                    ! solve degenerate PT problem
+                    CALL degenbc(nb, idg1, idg2, & ! <- args in
+                        pijA, pijB, dEijdg, & ! <- args in 
+                        bcurvdg) ! -> args out
+                    ! store group result for the Berry curvature in array
+                    DO m = 1, nmg
+                        bcurv(members(m), ivoigt-3) = bcurvdg(m)
+                    END DO
+                    DEALLOCATE(pijA, pijB, dEijdg, bcurvdg)
                 END DO ! loop over 'ivoigt'
-            END DO ! loop over 'ivb'
+                DEALLOCATE( members)
+            END DO ! loop over 'ig'
             ! store the Berry curvature band-by-band for all occupied states
             DO ivb = 1, nvb
                 WRITE(23,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
@@ -1024,7 +886,7 @@ DO ispin = 1, nstot
             DEALLOCATE( bcurv )
         END IF ! WIEN2k spin-resolved Berry curvature
 
-        DEALLOCATE( pij, dEij ) ! all k-point specific variables
+        DEALLOCATE( pij, dEij, dg_group ) ! all k-point specific variables
         IF ( wien2k .AND. spinor ) THEN
             DEALLOCATE( pijUP, dEijUP, pijDN, dEijDN ) ! up/dn components
         END IF
