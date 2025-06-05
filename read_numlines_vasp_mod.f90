@@ -1,3 +1,6 @@
+MODULE read_numlines_vasp_mod
+CONTAINS
+
 SUBROUTINE read_numlines_vasp(fname, fid, & ! <- args in 
                 nstot, nktot, nbcder, nb) ! -> args out
 
@@ -5,6 +8,7 @@ SUBROUTINE read_numlines_vasp(fname, fid, & ! <- args in
 
 !! Variables in-out
 
+USE precision_mod, ONLY: sp
 implicit none
 CHARACTER(len=256), intent(in) :: &
     fname ! command line input arguments
@@ -18,7 +22,7 @@ INTEGER, intent(out) :: &
 
 !! Variables internal
 
-INTEGER(kind=4) :: &
+INTEGER(kind=sp) :: &
     xnb, xnbcder, xnktot, xnstot ! temp variable
 
 !! Read the head record of WAVEDER file to determine 
@@ -37,3 +41,5 @@ nstot=xnstot
 
 RETURN
 END SUBROUTINE read_numlines_vasp
+
+END MODULE read_numlines_vasp_mod

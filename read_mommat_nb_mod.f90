@@ -1,3 +1,6 @@
+MODULE read_mommat_nb_mod
+CONTAINS
+
 SUBROUTINE read_mommat_nb(fid, & ! <- args in
             iline, & ! <-> args in-out
             nb) ! -> args out 
@@ -70,3 +73,5 @@ CLOSE(fid)
 ERROR STOP
 
 END SUBROUTINE read_mommat_nb
+
+END MODULE read_mommat_nb_mod

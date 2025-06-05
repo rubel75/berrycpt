@@ -12,7 +12,7 @@
 FC = ifort
 
 # Intel debuging
-FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0 -heap-arrays
+FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0 #-heap-arrays
 FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl -g -traceback -check all -warn all -debug all -O0
 
 # Intel performance
@@ -41,10 +41,10 @@ F90S := $(filter-out %__genmod.f90, $(wildcard *.f90))
 ALL_OBJS := $(patsubst %.f90, %.o, $(F90S))
 
 # Remove berrycpt.o from the list
-OBJS := $(filter-out berrycpt.o, $(ALL_OBJS))
+OBJS := $(filter-out berrycpt.o precision_mod.o eigvd_mod.o, $(ALL_OBJS))
 
-# Add berrycpt.o last
-OBJS += berrycpt.o
+# Add precision_mod.o first and berrycpt.o last
+OBJS := precision_mod.o eigvd_mod.o $(OBJS) berrycpt.o
 
 
 all: $(PROGRAM)

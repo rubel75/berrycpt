@@ -1,8 +1,4 @@
 MODULE degenoam_mod
-    IMPLICIT NONE
-    INTEGER, PARAMETER :: &
-        sp = KIND(1.0E0), & ! single precision
-        dp = KIND(1.0D0) ! double precision
 CONTAINS
 
 SUBROUTINE degenoam(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
@@ -10,6 +6,8 @@ SUBROUTINE degenoam(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in
 
 ! Orbital angular momentum (OAM) for a block of degenerate bands
 
+USE precision_mod, ONLY: sp, dp
+USE eigvd_mod, ONLY: eigvd
 IMPLICIT NONE
 
 !! Variables in/out
@@ -18,20 +16,22 @@ INTEGER, intent(in) :: &
     nb, & ! number of bands for a current k-point
     idg1, idg2 ! intext of the first and last degenerate state in the block
 COMPLEX(kind=sp), intent(in) :: &
-    pijA(1+idg2-idg1,nb), & ! momentum matrix elements [at.u.]
-    pijB(nb,1+idg2-idg1)
+    pijA(:,:), & ! momentum matrix elements [at.u.]
+    pijB(:,:)
 REAL(kind=sp), intent(in) :: &
-    dEij(1+idg2-idg1,nb) ! energy differences E_i-E_j [Ha]
-REAL(kind=dp), intent(out) :: &
-    oam(1+idg2-idg1) ! OAM for a block of degenerate bands
+    dEij(:,:) ! energy differences E_i-E_j [Ha]
+REAL(kind=dp), ALLOCATABLE, intent(out) :: &
+    oam(:)  ! Berry curvature for a block of degenerate bands 
+            ! (allocated inside CALL eigvd(...) )
 
 !! Variables internal
 
 REAL(kind=dp) :: &
-    M(1+idg2-idg1,1+idg2-idg1), & ! Matrix similar to Eq. (6) in mstar paper (https://doi.org/10.1016/j.cpc.2020.107648)
     Lnln, & ! component leading to M(m,n)
-    temp, corrected_term, & ! intermediates for Kahan summation
-    Mcorr(1+idg2-idg1,1+idg2-idg1) ! intermediates for Kahan summation
+    temp, corrected_term ! intermediates for Kahan summation
+REAL(kind=dp), ALLOCATABLE :: &
+    M(:,:), & ! Matrix similar to Eq. (6) in mstar paper (https://doi.org/10.1016/j.cpc.2020.107648)
+    Mcorr(:,:) ! intermediates for Kahan summation
 REAL(kind=sp) :: &
     p2, & ! product of momentum matrix elements
     dE ! energy difference [Ha]
@@ -40,14 +40,10 @@ INTEGER :: &
     i, j, & ! counter
     ndg ! number of degenerate bands
 
-!! External subroutines
-
-EXTERNAL :: &
-    eigvd
-
 !! construct M matrix
 
 ndg = 1+idg2-idg1 ! number of degenerate bands
+ALLOCATE( M(ndg,ndg), Mcorr(ndg,ndg) )
 DO i = 1, ndg
     DO j = 1, ndg
         idg = idg1 + i - 1
@@ -87,8 +83,9 @@ END DO ! i
 !! OAM is eigenvalues of the M matrix
 
 CALL eigvd(ndg, M, & ! <- args in 
-    oam) ! -> args out
+    oam) ! -> args out (allocated inside)
 
+DEALLOCATE( M, Mcorr )
 RETURN
 END SUBROUTINE degenoam
 

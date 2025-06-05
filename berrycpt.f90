@@ -60,15 +60,17 @@ PROGRAM berrycpt
 !! Variables
 
 USE OMP_LIB
+USE precision_mod, ONLY: sp, dp
+USE read_mommat_nb_mod, ONLY: read_mommat_nb
+USE read_numlines_mod, ONLY: read_numlines
+USE read_numlines_vasp_mod, ONLY: read_numlines_vasp
+USE read_mommat_pij_mod, ONLY: read_mommat_pij
+USE read_mommat_pij_vasp_mod, ONLY: read_mommat_pij_vasp
+USE finddegenblocks_mod, ONLY: finddegenblocks
+USE degenbc_mod, ONLY: degenbc
 USE degenoam_mod, ONLY: degenoam
 
 IMPLICIT NONE
-
-!! Constants
-
-INTEGER, PARAMETER :: &
-    sp = KIND(1.0E0), & ! single precision
-    dp = KIND(1.0D0) ! double precision
 
 !! Variables
 
@@ -134,17 +136,6 @@ LOGICAL :: &
     wien2k, & ! true if this is a WIEN2k calculation
     spinor ! the wave function is a spinor
 
-!! External subroutines
-
-EXTERNAL :: &
-    read_numlines, &
-    read_numlines_vasp, &
-    read_mommat_pij, &
-    read_mommat_pij_vasp, &
-    read_mommat_nb, &
-    degenbc, &
-    finddegenblocks
-
 !! Get command line input arguments
 
 DO i = 1, iargc() ! loop through all command line arguments to search for help
@@ -161,7 +152,7 @@ IF ((iargc() < 3) .OR. (iargc() > 4)) THEN ! check number of input arguments
 END IF
 ! 1st argument
 CALL GETARG(1,arg1) ! mommat file name
-WRITE (*,*) 'Input mommat file = ', TRIM(arg1)
+WRITE (*,*) 'Input mommat file = ' // TRIM(arg1)
 fnameinp = TRIM(arg1)
 ! 2nd argument
 CALL GETARG(2,arg2) ! switch for the number of valence bands [-nvb]
@@ -170,7 +161,7 @@ IF (TRIM(arg2)=='-nvb') THEN
     CALL GETARG(3,arg3)
     read(arg3,*,IOSTAT=ierr) nvbinpt
     IF (ierr /= 0) THEN ! input error for 3rd argument
-        WRITE(*,*) '3rd argument is "', TRIM(arg3), '"'
+        WRITE(*,*) '3rd argument is "' // TRIM(arg3) // '"'
         WRITE(*,*) 'Error detected for the 3rd input argument (must be a number of occupied bands)'
         GOTO 912 ! print error and STOP
     END IF
@@ -182,14 +173,14 @@ ELSE IF (TRIM(arg2)=='-efermiev') THEN
     CALL GETARG(3,arg3)
     read(arg3,*,IOSTAT=ierr) efermi
     IF (ierr /= 0) THEN ! input error for 3rd argument
-        WRITE(*,*) '3rd argument is "', TRIM(arg3), '"'
+        WRITE(*,*) '3rd argument is "' // TRIM(arg3) // '"'
         WRITE(*,*) 'Error detected for the 3rd input argument (must be a Fermi energy)'
         GOTO 912 ! print error and STOP
     END IF
     WRITE (*,'(A,F10.6)') & !...
         ' Fermi energy (eV) = ', efermi
 ELSE ! impossible
-    WRITE (*,*) 'The second argument is "', TRIM(arg2), &
+    WRITE (*,*) 'The second argument is "' // TRIM(arg2) // &
         '", while expected "-nvb" or "-efermiev"'
     GOTO 912 ! print error and STOP
 END IF
@@ -201,7 +192,7 @@ IF ( iargc()==4 ) THEN
         spinor = .true.
         WRITE(*,*) 'The wave function is a spinor'
     ELSE ! impossible
-        WRITE (*,*) 'The 4th argument is "', TRIM(arg4), &
+        WRITE (*,*) 'The 4th argument is "' // TRIM(arg4) // &
             '", while expected "-so"'
         GOTO 912 ! print error and STOP
     END IF
@@ -225,7 +216,7 @@ ELSE ! WIEN2k (default)
         ! take last two letters of the input file name
         charspin = fnameinp( LEN(TRIM(fnameinp))-1 : LEN(TRIM(fnameinp)) )
         IF ( (charspin=='up') .OR. (charspin=='dn')) THEN
-            WRITE(*,'(2A)') ' The input file name ends with ', TRIM(charspin)
+            WRITE(*,'(A)') ' The input file name ends with ' // TRIM(charspin)
             WRITE(*,*) 'and the spinor option is selected. This is inconsistent.'
             WRITE(*,*) 'Instead you should point to the momentum matrix elements'
             WRITE(*,*) 'file with spin up+dn, which is case.mommat2'
@@ -235,8 +226,8 @@ ELSE ! WIEN2k (default)
         fnameinpUP = TRIM(fnameinp)//'up'
         fnameinpDN = TRIM(fnameinp)//'dn'
         WRITE(*,*) 'It will be assumed that WIEN2k spin-resolved momentum matrix'
-        WRITE(*,'(4A)') ' elements are stored in the files: ', &
-                TRIM(fnameinpUP), ' and ', TRIM(fnameinpDN)
+        WRITE(*,'(A)') ' elements are stored in the files: ' // &
+                TRIM(fnameinpUP) // ' and ' // TRIM(fnameinpDN)
     END IF
 END IF
 
@@ -245,35 +236,35 @@ END IF
 ! check if the file exists
 INQUIRE(FILE=fnameinp, EXIST=file_exists)
 IF ( file_exists ) THEN
-    WRITE(*,*) 'The input file ', TRIM(fnameinp), ' was found.'
+    WRITE(*,*) 'The input file ' // TRIM(fnameinp) // ' was found.'
 ELSE IF ( .not.(file_exists) ) THEN
-    WRITE(*,*) 'The input file ', TRIM(fnameinp), ' does not exist. Exiting'
+    WRITE(*,*) 'The input file ' // TRIM(fnameinp) // ' does not exist. Exiting'
     ERROR STOP
 END IF
 IF ( wien2k .AND. spinor ) THEN ! check spin-resolved momentum matrix elements
     INQUIRE(FILE=fnameinpUP, EXIST=file_exists)
     IF ( file_exists ) THEN
-        WRITE(*,*) 'The input file ', TRIM(fnameinpUP), ' was found.'
+        WRITE(*,*) 'The input file ' // TRIM(fnameinpUP) // ' was found.'
     ELSE IF ( .not.(file_exists) ) THEN
-        WRITE(*,*) 'The input file ', TRIM(fnameinpUP), ' does not exist. Exiting'
+        WRITE(*,*) 'The input file ' // TRIM(fnameinpUP) // ' does not exist. Exiting'
         ERROR STOP
     END IF
     INQUIRE(FILE=fnameinpDN, EXIST=file_exists)
     IF ( file_exists ) THEN
-        WRITE(*,*) 'The input file ', TRIM(fnameinpDN), ' was found.'
+        WRITE(*,*) 'The input file ' // TRIM(fnameinpDN) // ' was found.'
     ELSE IF ( .not.(file_exists) ) THEN
-        WRITE(*,*) 'The input file ', TRIM(fnameinpDN), ' does not exist. Exiting'
+        WRITE(*,*) 'The input file ' // TRIM(fnameinpDN) // ' does not exist. Exiting'
         ERROR STOP
     END IF
 END IF
 IF ( file_exists .AND. (.not.(wien2k)) ) THEN ! check EIGENVAL for VASP
     INQUIRE(FILE='EIGENVAL', EXIST=file_exists)
     IF ( .not.(file_exists) ) THEN
-        WRITE(*,*) 'The file EIVENVAL is also required, but it ', &
+        WRITE(*,*) 'The file EIGENVAL is also required, but it ', &
             'does not exist. Exiting'
         ERROR STOP
     ELSE
-        WRITE(*,*) 'The file EIVENVAL is also required. ', &
+        WRITE(*,*) 'The file EIGENVAL is also required. ', &
             'It is found.'
     END IF
 END IF
@@ -285,7 +276,7 @@ IF ( wien2k ) THEN
             nltot) ! -> args out
     WRITE (*,'(A,I0)') '  number of lines in mommat file = ', nltot
     IF (nltot < 10) THEN
-        WRITE(*,*) 'The file ', TRIM(fnameinp), ' is too short ', & !...
+        WRITE(*,*) 'The file ' // TRIM(fnameinp) // ' is too short ' // & !...
             'and most likely useless. Stopping'
         ERROR STOP
     END IF
@@ -346,10 +337,8 @@ END IF
 !! Read VASP WAVEDER and EIGENVAL files to determine matrix elements
 
 IF ( .NOT.(wien2k) ) THEN
-    ALLOCATE( pijks(3,nb,nb,nktot,nstot), dEijks(nb,nb,nktot,nstot) )
-    ALLOCATE( nbocck(nktot,nstot) )
     CALL read_mommat_pij_vasp (1, nstot, nktot, nbcder, nb, efermi, & ! <- args in
-            pijks, dEijks, nbocck) ! -> args out
+            pijks, dEijks, nbocck) ! -> args out (allocated inside)
 END IF
 
 ! Loop over spins (for VASP only)
@@ -470,11 +459,11 @@ DO ispin = 1, nstot
                 IF ( (nb.NE.nbUP) .OR. (nb.NE.nbDN) .OR. &
                         (nbUP.NE.nbDN) ) THEN
                     WRITE(*,'(A,I0)') ' K-point ', ikpt
-                    WRITE(*,'(3A,I0,A)') '  file ', TRIM(fnameinp), ' has ', &
+                    WRITE(*,'(A,I0,A)') '  file ' // TRIM(fnameinp) // ' has ', &
                             nb, ' bands'
-                    WRITE(*,'(3A,I0,A)') '  file ', TRIM(fnameinpUP), ' has ',&
+                    WRITE(*,'(A,I0,A)') '  file ' // TRIM(fnameinpUP) // ' has ',&
                             nbUP, ' bands'
-                    WRITE(*,'(3A,I0,A)') '  file ', TRIM(fnameinpDN), ' has ', &
+                    WRITE(*,'(A,I0,A)') '  file ' // TRIM(fnameinpDN) // ' has ', &
                             nbDN, ' bands'
                     ERROR STOP 'Error: inconsistency in the number of bands for this k-point' 
                 END IF
@@ -483,26 +472,28 @@ DO ispin = 1, nstot
 
         !! Read <b_i|p_a|b_j> from mommat file, a=1,2,3 (x,y,z)
 
-        ALLOCATE( pij(3,nb,nb), dEij(nb,nb) )
         IF ( wien2k ) THEN
             nbb = (nb+nb**2)/2 ! number of band-to-band transitions
             ! spin up+dn momentum matrix elements
             CALL read_mommat_pij (1, nb, nbb, & ! <- args in
                     iline, & ! <-> args in-out
-                    pij, dEij) ! -> args out
+                    pij, dEij) ! -> args out (allocated inside)
             IF ( spinor ) THEN
                 ! spin UP momentum matrix elements
-                ALLOCATE( pijUP(3,nbUP,nbUP), dEijUP(nbUP,nbUP) )
                 CALL read_mommat_pij (11, nbUP, nbb, & ! <- args in
                         ilineUP, & ! <-> args in-out
-                        pijUP, dEijUP) ! -> args out
+                        pijUP, dEijUP) ! -> args out (allocated inside)
                 ! spin DN momentum matrix elements
-                ALLOCATE( pijDN(3,nbDN,nbDN), dEijDN(nbDN,nbDN) )
                 CALL read_mommat_pij (12, nbDN, nbb, & ! <- args in
                         ilineDN, & ! <-> args in-out
-                        pijDN, dEijDN) ! -> args out
+                        pijDN, dEijDN) ! -> args out (allocated inside)
             END IF
         ELSE ! VASP
+            IF (.NOT. ALLOCATED(pij)) THEN
+                ALLOCATE( pij(3,nb,nb) )
+            ELSEIF (.NOT. ALLOCATED(dEij)) THEN
+                ALLOCATE( dEij(nb,nb) )
+            END IF
             pij = pijks(:,:,:,ikpt,ispin)
             dEij = dEijks(:,:,ikpt,ispin)
         END IF
@@ -517,9 +508,8 @@ DO ispin = 1, nstot
 
         !! Identify band degeneracies
 
-        ALLOCATE( dg_group(nb) )
         CALL finddegenblocks(nb, dEij, 1.0e-5, & ! <- args in 
-            dg_group, ngroups) ! -> args out
+            dg_group, ngroups) ! -> args out (dg_group is allocated inside)
 
         !! Handle situation when the degenerate block extends past 'nvb'
 
@@ -553,7 +543,7 @@ DO ispin = 1, nstot
                     '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
         END IF
         
-        !! preapare output formats for Berry curvatures
+        !! Prepare output formats for Berry curvatures
         
         WRITE(wformat2,'(I0)') nbcder ! make a character of the length 'nbcder'
         ! format line to WRITE Berry curvatures
@@ -570,8 +560,8 @@ DO ispin = 1, nstot
         bcurv = 0.0_dp
         oam = 0.0_dp
         ! Loop over groups of degenerate bands in the range of [1:nvb].
-        ! Even if a band is not degenerate, it is still considered as
-        ! degeneracy of the size 1.
+        ! Each band is treated as a degenerate group of size 1 if not part 
+        ! of a larger degenerate block.
         DO ig = 1, dg_group(nvb)
             nmg = COUNT(dg_group == ig) ! number of group members
             ALLOCATE( members(nmg) )
@@ -583,7 +573,7 @@ DO ispin = 1, nstot
                     members(m) = n
                 END IF
             END DO
-            ! loop over Voigt indecies
+            ! loop over Voigt indices
             DO ivoigt = 4, 6
                 ! handle Voigt notations
                 SELECT CASE (ivoigt)
@@ -599,10 +589,8 @@ DO ispin = 1, nstot
                     ERROR STOP 'Wrong boundaries of the degenerate block'
                 END IF
                 ! allocate group-specific arrays
-                ALLOCATE( bcurvdg(nmg), oamdg(nmg), pijA(nmg,nb), &
+                ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), &
                     pijB(nb,nmg), dEijdg(nmg,nb) )
-                bcurvdg = 0.0_dp
-                oamdg = 0.0_dp
                 ! get group-specific matrix elements and energies
                 DO m = 1, nmg
                     pijA(m,:) = pij(alpha, members(m), :)
@@ -615,7 +603,7 @@ DO ispin = 1, nstot
                     bcurvdg) ! -> args out
                 CALL degenoam(nb, idg1, idg2, & ! <- args in
                     pijA, pijB, dEijdg, & ! <- args in 
-                    oamdg) ! -> args out
+                    oamdg) ! -> args out (oamdg allocated inside)
                 ! store group result for the Berry curvature and OAM in array
                 DO m = 1, nmg
                     bcurv(members(m), ivoigt-3) = bcurvdg(m)
@@ -636,7 +624,7 @@ DO ispin = 1, nstot
 
         ! spin-resolved OAM
         ! OAM^{sigma_z, up}_{ab,n} = <u|L_{ab}*1/2*(I+sigma_z)|u>
-        ! here I -- unitary matrix,
+        ! here I -- identity matrix,
         !      sigma_z -- Pauli matrix
         ! 1/2*(I+sigma_z) = (1 0; 0 0), leading to the PT sum over states
         ! OAM^{sigma_z, up}_{ab,n} = 
@@ -658,7 +646,7 @@ DO ispin = 1, nstot
                     members(m) = n
                 END IF
             END DO
-            ! loop over Voigt indecies
+            ! loop over Voigt indices
             DO ivoigt = 4, 6
                 ! handle Voigt notations
                 SELECT CASE (ivoigt)
@@ -719,7 +707,7 @@ DO ispin = 1, nstot
                         members(m) = n
                     END IF
                 END DO
-                ! loop over Voigt indecies
+                ! loop over Voigt indices
                 DO ivoigt = 4, 6
                     ! handle Voigt notations
                     SELECT CASE (ivoigt)
@@ -780,7 +768,7 @@ DO ispin = 1, nstot
                         members(m) = n
                     END IF
                 END DO
-                ! loop over Voigt indecies
+                ! loop over Voigt indices
                 DO ivoigt = 4, 6
                     ! handle Voigt notations
                     SELECT CASE (ivoigt)
@@ -841,7 +829,7 @@ DO ispin = 1, nstot
                         members(m) = n
                     END IF
                 END DO
-                ! loop over Voigt indecies
+                ! loop over Voigt indices
                 DO ivoigt = 4, 6
                     ! handle Voigt notations
                     SELECT CASE (ivoigt)
@@ -953,16 +941,16 @@ END IF
 
 WRITE(*,*) 'Summary of the output:'
 WRITE(*,*) '(1) Components of the Berry curvature tensor are stored in the file'
-WRITE(*,*) '    ', TRIM(fnameout2)
+WRITE(*,*) '    ' // TRIM(fnameout2)
 WRITE(*,*) '    See the file header for the description'
 WRITE(*,*) '(2) Components of the orbital angular momentum tensor are stored in the file'
-WRITE(*,*) '    ', TRIM(fnameout3)
+WRITE(*,*) '    ' // TRIM(fnameout3)
 IF ( wien2k .AND. spinor ) THEN
     WRITE(*,*) '(3) Spin Berry curvature (WIEN2k only) is stored in'
-    WRITE(*,*) '    ', TRIM(fnameout21), ', ', &
-        TRIM(fnameout22), ', ', TRIM(fnameout23)
+    WRITE(*,*) '    ' // TRIM(fnameout21) // ', ' // &
+        TRIM(fnameout22) // ', ' // TRIM(fnameout23)
     WRITE(*,*) '(4) Spin OAM sigma_z, UP (WIEN2k only) is stored in'
-        WRITE(*,*) '    ', TRIM(fnameout31)
+        WRITE(*,*) '    ' // TRIM(fnameout31)
 END IF
 WRITE(*,*) ''
 WRITE(*,*) 'Suggested reference:'
@@ -996,7 +984,7 @@ WRITE(*,*) 'Output:'
 WRITE(*,*) 'bcurv_ij.dat - contains elements of the Berry curvature tensor.'
 WRITE(*,*) 'bcurv_ij-[up,dn].dat - contains elements of the spin-resolved'
 WRITE(*,*) '     Berry curvature tensor.'
-WRITE(*,*) 'If the files exist from a previous run, they will be overwritten'
+WRITE(*,*) 'If the files already exist from a previous run, they will be overwritten'
 WRITE(*,*) ''
 WRITE(*,*) 'Tips:'
 WRITE(*,*) '(1): Writing of the mommat file is _not_ default in WIEN2k.'

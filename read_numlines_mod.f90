@@ -1,3 +1,6 @@
+MODULE read_numlines_mod
+CONTAINS
+
 SUBROUTINE read_numlines(fname, fid, & ! <- args in 
             nltot) ! -> args out 
 
@@ -25,3 +28,5 @@ END DO
 
 RETURN
 END SUBROUTINE read_numlines
+
+END MODULE read_numlines_mod

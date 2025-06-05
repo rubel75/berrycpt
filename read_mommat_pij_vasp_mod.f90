@@ -1,3 +1,6 @@
+MODULE read_mommat_pij_vasp_mod
+CONTAINS
+
 SUBROUTINE read_mommat_pij_vasp (fid, nstot, nktot, nbcder, nb, efermi, & ! <- args in
                 pijks, dEijks, nbocck) ! -> args out
 
@@ -7,6 +10,7 @@ SUBROUTINE read_mommat_pij_vasp (fid, nstot, nktot, nbcder, nb, efermi, & ! <- a
 
 !! Variables in-out
 
+USE precision_mod, ONLY: sp, dp
 implicit none
 INTEGER, intent(in) :: &
     fid, & ! file ID
@@ -14,29 +18,37 @@ INTEGER, intent(in) :: &
     nktot, & ! total number of k-points in WAVEDER file
     nbcder, & ! max number of bands for which the ban curvature can be calculated
     nb ! max number of bands
-REAL(kind=4), intent(in) :: &
+REAL(kind=sp), intent(in) :: &
     efermi ! Fermi energy in [eV]
-REAL(kind=4), intent(out) :: &
-    dEijks(nb,nb,nktot,nstot) ! k- and spin-dependent energy differences 
+REAL(kind=sp), allocatable, intent(out) :: &
+    dEijks(:,:,:,:) ! k- and spin-dependent energy differences 
                               ! E_i-E_j (at.u.)
-COMPLEX(kind=4), intent(out) :: &
-    pijks(3,nb,nb,nktot,nstot) ! k- and spin-dependent momentum matrix
+COMPLEX(kind=sp), allocatable, intent(out) :: &
+    pijks(:,:,:,:,:) ! k- and spin-dependent momentum matrix
                                ! elements (at.u.)
-INTEGER, intent(out) :: &
-    nbocck(nktot,nstot) ! k- and spin-resolved number of occupied bands
+INTEGER, allocatable, intent(out) :: &
+    nbocck(:,:) ! k- and spin-resolved number of occupied bands
 
 !! Variables internal
 
 CHARACTER(len=256) :: cline ! text in the current line
 INTEGER :: ispin, ikpt, iband, idim, im, in, i ! counters
-INTEGER(kind=4) :: dum1, dum2, dum3, dum4 ! not used
-REAL(kind=8) :: NODES_IN_DIELECTRIC_FUNCTION, WPLASMON(3,3) ! not used
-REAL(kind=4) :: occup(nstot) ! not used
-REAL(kind=8) :: ene(nb,nktot,nstot) ! energy eigenvalues (eV)
-COMPLEX(kind=4) ::  rijks(nb,nbcder,nktot,nstot,3) ! dipole matrix elements (Ang)
+INTEGER(kind=sp) :: dum1, dum2, dum3, dum4 ! not used
+REAL(kind=sp), allocatable :: occup(:) ! not used
+REAL(kind=dp), allocatable :: &
+    NODES_IN_DIELECTRIC_FUNCTION, WPLASMON(:,:), & ! not used
+    ene(:,:,:) ! energy eigenvalues (eV)
+COMPLEX(kind=sp), allocatable :: &
+    rijks(:,:,:,:,:) ! dipole matrix elements (Ang)
 
 
 !! Read dipole matrix element from WAVEDER file
+
+ALLOCATE( dEijks(nb,nb,nktot,nstot), pijks(3,nb,nb,nktot,nstot), &
+    nbocck(nktot,nstot) ) ! intent(out) arrays, do not deallocate here
+ALLOCATE( occup(nstot), ene(nb,nktot,nstot), &
+    rijks(nb,nbcder,nktot,nstot,3), &
+    NODES_IN_DIELECTRIC_FUNCTION, WPLASMON(3,3) )
 
 ! skip through header lines
 READ(fid) dum1, dum2, dum3, dum4 ! WDES%NB_TOT, NBANDS_CDER, WDES%NKPTS, WDES%ISPIN
@@ -102,7 +114,7 @@ DO ispin = 1, nstot ! loop over spins
                 ! 27.211386245988 [eV -> Ha]
                 dEijks(in,im,ikpt,ispin) = &
                     REAL( ene(im,ikpt,ispin) - &
-                    ene(in,ikpt,ispin), kind=4)/27.211386245988
+                    ene(in,ikpt,ispin), kind=sp)/27.211386245988
                 dEijks(im,in,ikpt,ispin) = -dEijks(in,im,ikpt,ispin)
             END DO
         END DO
@@ -133,6 +145,8 @@ DO ispin = 1, nstot ! loop over spins
         END DO
     END DO
 END DO
+
+DEALLOCATE( occup, ene, rijks, NODES_IN_DIELECTRIC_FUNCTION, WPLASMON )
 RETURN
 
 !! Read error handling
@@ -156,3 +170,5 @@ write(*,*) 'Execution terminated'
 ERROR STOP
 
 END SUBROUTINE read_mommat_pij_vasp
+
+END MODULE read_mommat_pij_vasp_mod

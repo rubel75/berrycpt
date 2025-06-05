@@ -1,3 +1,6 @@
+MODULE read_mommat_pij_mod
+CONTAINS
+
 SUBROUTINE read_mommat_pij (fid, nb, nbb, & ! <- args in
             iline, & ! <-> args in-out
             pij, dEij) ! -> args out 
@@ -6,7 +9,7 @@ SUBROUTINE read_mommat_pij (fid, nb, nbb, & ! <- args in
 ! E_i - E_j in a k-point block of mommat file
 
 !! Variables in-out
-
+USE precision_mod, ONLY: sp, dp
 implicit none
 INTEGER, intent(in) :: &
     fid, & ! file ID
@@ -14,10 +17,10 @@ INTEGER, intent(in) :: &
     nbb ! number of band-to-band transition
 INTEGER, intent(inout) :: &
     iline ! current line number during reading of mommat file
-REAL(kind=4), intent(out) :: &
-    dEij(nb,nb) ! energy differences E_i-E_j [Ha]
-COMPLEX(kind=4), intent(out) :: &
-    pij(3,nb,nb) ! momentum matrix elements [at. units]
+REAL(kind=sp), allocatable, intent(out) :: &
+    dEij(:,:) ! energy differences E_i-E_j [Ha] (size nb x nb)
+COMPLEX(kind=sp), allocatable, intent(out) :: &
+    pij(:,:,:) ! momentum matrix elements [at. units] (size 3 x nb x nb)
 
 !! Variables internal
 
@@ -27,6 +30,8 @@ INTEGER :: bii, bjj  ! band indices used to determine the total number of bands
 REAL(kind=4) :: p1_Re, p1_Im, p2_Re, p2_Im, p3_Re, p3_Im
 
 !! Read momentum matrix element
+
+ALLOCATE( dEij(nb,nb), pij(3,nb,nb) ) ! allocate intent(out) arrays
 
 row = 0
 DO WHILE ( .true. )
@@ -103,3 +108,5 @@ CLOSE(fid)
 ERROR STOP
 
 END SUBROUTINE read_mommat_pij
+
+END MODULE read_mommat_pij_mod

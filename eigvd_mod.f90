@@ -1,24 +1,22 @@
+MODULE eigvd_mod
+CONTAINS
+
 SUBROUTINE eigvd(n, H, & ! <- args in 
             EIGV) ! -> args out
 
 ! Solve a _real_ matrix eigenvalue problem double precision
 
+USE precision_mod, ONLY: sp, dp
 implicit none
-
-!! Constants internal
-
-INTEGER, PARAMETER :: &
-    sp = KIND(1.0E0), & ! single precision
-    dp = KIND(1.0D0) ! double precision
 
 !! Variables in-out
 
 INTEGER, intent(in) :: &
     n ! size of H matrixs
 REAL(kind=dp), intent(in) :: &
-    H(n,n) ! square matrix
-REAL(kind=dp), intent(out) :: &
-    EIGV(n) ! eigenvalues
+    H(:,:) ! square matrix (size n x n)
+REAL(kind=dp), allocatable, intent(out) :: &
+    EIGV(:) ! eigenvalues
 
 !! Internal variables
 
@@ -26,9 +24,8 @@ INTEGER :: &
     lwork, liwork, & ! The size of the work arrays
     info ! status argument
 INTEGER, ALLOCATABLE :: iwork(:) ! The size of the work array (lwork>=n)
-REAL(kind=dp) :: &
-    A(n,n) ! used for H matrix and then overwritten by eigenvectors
 REAL(kind=dp), ALLOCATABLE :: &
+    A(:,:), & ! used for H matrix and then overwritten by eigenvectors
     work(:) ! workspace array
 
 !! Parameters
@@ -41,6 +38,9 @@ CHARACTER(len=1), PARAMETER :: &
 
 EXTERNAL :: &
     dsyevd ! Intel MKL
+
+ALLOCATE( EIGV(n) ) ! allocate intent(out) array, but not deallocate here
+ALLOCATE( A(n,n) )
 
 !! Reassign H to another variable to avoid it being overwritten
 
@@ -70,7 +70,7 @@ deallocate ( work, iwork )
 allocate( work(lwork), iwork(liwork) )
 call dsyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! double precision (kind=8)
 !call ssyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! single precision (kind=4)
-deallocate ( work, iwork )
+deallocate ( work, iwork, A )
 IF (info .ne. 0) THEN
     write (*,*) "ERROR in ssyevd (2nd call): info = ", info
     write (*,*) "If info = -i, the i-th parameter had an illegal value."
@@ -83,3 +83,5 @@ END IF
 
 RETURN
 END SUBROUTINE eigvd
+
+END MODULE eigvd_mod
