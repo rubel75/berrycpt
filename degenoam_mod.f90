@@ -1,15 +1,16 @@
+MODULE degenoam_mod
+    IMPLICIT NONE
+    INTEGER, PARAMETER :: &
+        sp = KIND(1.0E0), & ! single precision
+        dp = KIND(1.0D0) ! double precision
+CONTAINS
+
 SUBROUTINE degenoam(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
     oam) ! -> args out
 
 ! Orbital angular momentum (OAM) for a block of degenerate bands
 
 IMPLICIT NONE
-
-!! Constants internal
-
-INTEGER, PARAMETER :: &
-    sp = KIND(1.0E0), & ! single precision
-    dp = KIND(1.0D0) ! double precision
 
 !! Variables in/out
 
@@ -90,3 +91,5 @@ CALL eigvd(ndg, M, & ! <- args in
 
 RETURN
 END SUBROUTINE degenoam
+
+END MODULE degenoam_mod

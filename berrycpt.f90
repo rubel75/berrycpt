@@ -60,6 +60,7 @@ PROGRAM berrycpt
 !! Variables
 
 USE OMP_LIB
+USE degenoam_mod, ONLY: degenoam
 
 IMPLICIT NONE
 
@@ -142,9 +143,7 @@ EXTERNAL :: &
     read_mommat_pij_vasp, &
     read_mommat_nb, &
     degenbc, &
-    degenoam, &
-    finddegenblocks, &
-    vdSum ! Intel MKL
+    finddegenblocks
 
 !! Get command line input arguments
 
@@ -602,6 +601,8 @@ DO ispin = 1, nstot
                 ! allocate group-specific arrays
                 ALLOCATE( bcurvdg(nmg), oamdg(nmg), pijA(nmg,nb), &
                     pijB(nb,nmg), dEijdg(nmg,nb) )
+                bcurvdg = 0.0_dp
+                oamdg = 0.0_dp
                 ! get group-specific matrix elements and energies
                 DO m = 1, nmg
                     pijA(m,:) = pij(alpha, members(m), :)

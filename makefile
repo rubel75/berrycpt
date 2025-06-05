@@ -12,40 +12,48 @@
 FC = ifort
 
 # Intel debuging
-FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0
+FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0 -heap-arrays
 FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl -g -traceback -check all -warn all -debug all -O0
 
 # Intel performance
-#FCFLAGS =  -I${MKLROOT}/include -qopenmp
+#FCFLAGS =  -I${MKLROOT}/include -qopenmp -heap-arrays
 #FLFLAGS =  -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl
 
 # GNU Fortran
 
 #FC = gfortran
-#FCFLAGS = -I${MKLROOT}/include -fopenmp -g -fbacktrace -ffpe-summary=none
+#FCFLAGS = -I${MKLROOT}/include -fopenmp -g -fbacktrace -ffpe-summary=none -fno-automatic
 #FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -fopenmp -ldl -g -fbacktrace -ffpe-summary=none
 
 # ~~~ Do not edit after that line ~~~
 
 # Check env variables
 ifndef MKLROOT
-    $(error: MKLROOT enviriment variable is not set. Please check your MKL setup.)
+    $(error MKLROOT environment variable is not set. Please check your MKL setup.)
 endif
 
 PROGRAM = berrycpt
 
-# source files and objects
-SRCS = $(patsubst %.f90, %.o, $(wildcard *.f90)) \
-    $(patsubst %.h, %.mod, $(wildcard *.h))
+# Get all .f90 source files
+F90S := $(filter-out %__genmod.f90, $(wildcard *.f90))
+
+# Convert to .o files
+ALL_OBJS := $(patsubst %.f90, %.o, $(F90S))
+
+# Remove berrycpt.o from the list
+OBJS := $(filter-out berrycpt.o, $(ALL_OBJS))
+
+# Add berrycpt.o last
+OBJS += berrycpt.o
 
 
 all: $(PROGRAM)
 
-$(PROGRAM): $(SRCS)
-	$(FC) $(FLFLAGS) $(FLINK) -o $@ $^
+$(PROGRAM): $(OBJS)
+	$(FC) $(FLFLAGS) -o $@ $^
 
 %.o: %.f90
-	$(FC) $(FCFLAGS) $(FOPT) -c $<
+	$(FC) $(FCFLAGS) -c $<
 
 #%.mod: %.h
 #	$(FC) $(FCFLAGS) -o $@ $<
@@ -56,7 +64,7 @@ $(PROGRAM): $(SRCS)
 .PHONY: clean veryclean
 
 clean:
-	rm -f *.o *.mod *.MOD
+	rm -f *.o *.mod *.MOD *__genmod.*
 
 veryclean: clean
-	rm -f *~ $(PROGRAMS)
+	rm -f *~ $(PROGRAM)
