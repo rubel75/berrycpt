@@ -363,7 +363,26 @@ END IF
 
 IF ( .NOT.(wien2k) ) THEN
     CALL read_mommat_pij_vasp (1, nstot, nktot, nbcder, nb, efermi, & ! <- args in
-            pijks, dEijks, nbocck) ! -> args out (allocated inside)
+        pijks, dEijks, nbocck) ! -> args out (allocated inside)
+    ! check returned arrays
+    IF (.NOT. ALLOCATED(pijks)) ERROR STOP 'Array pijks is not allocated.'
+    IF (ANY(SHAPE(pijks) /= [3,nb,nb,nktot,nstot])) THEN
+        WRITE (*,*) 'Array "pijks" has shape', SHAPE(pijks)
+        WRITE (*,*) 'while expected', [3,nb,nb,nktot,nstot]
+        ERROR STOP "Shape mismatch in array pijks"
+    END IF
+    IF (.NOT. ALLOCATED(dEijks)) ERROR STOP 'Array dEijks is not allocated.'
+    IF (ANY(SHAPE(dEijks) /= [nb,nb,nktot,nstot])) THEN
+        WRITE (*,*) 'Array "dEijks" has shape', SHAPE(dEijks)
+        WRITE (*,*) 'while expected', [nb,nb,nktot,nstot]
+        ERROR STOP "Shape mismatch in array dEijks"
+    END IF
+    IF (.NOT. ALLOCATED(nbocck)) ERROR STOP 'Array nbocck is not allocated.'
+    IF (ANY(SHAPE(nbocck) /= [nktot,nstot])) THEN
+        WRITE (*,*) 'Array "nbocck" has shape', SHAPE(nbocck)
+        WRITE (*,*) 'while expected', [nktot,nstot]
+        ERROR STOP "Shape mismatch in array nbocck"
+    END IF
 END IF
 
 ! Loop over spins (for VASP only)
@@ -501,17 +520,56 @@ DO ispin = 1, nstot
             nbb = (nb+nb**2)/2 ! number of band-to-band transitions
             ! spin up+dn momentum matrix elements
             CALL read_mommat_pij (1, nb, nbb, & ! <- args in
-                    iline, & ! <-> args in-out
-                    pij, dEij) ! -> args out (allocated inside)
+                iline, & ! <-> args in-out
+                pij, dEij) ! -> args out (allocated inside)
+            ! check returned arrays
+            IF (.NOT. ALLOCATED(pij)) ERROR STOP 'Array pij is not allocated.'
+            IF (ANY(SHAPE(pij) /= [3,nb,nb])) THEN
+                WRITE (*,*) 'Array "pij" has shape', SHAPE(pij)
+                WRITE (*,*) 'while expected', [3,nb,nb]
+                ERROR STOP "Shape mismatch in array pij"
+            END IF
+            IF (.NOT. ALLOCATED(dEij)) ERROR STOP 'Array dEij is not allocated.'
+            IF (ANY(SHAPE(dEij) /= [nb,nb])) THEN
+                WRITE (*,*) 'Array "dEij" has shape', SHAPE(dEij)
+                WRITE (*,*) 'while expected', [nb,nb]
+                ERROR STOP "Shape mismatch in array dEij"
+            END IF
             IF ( spinor ) THEN
                 ! spin UP momentum matrix elements
                 CALL read_mommat_pij (11, nbUP, nbb, & ! <- args in
-                        ilineUP, & ! <-> args in-out
-                        pijUP, dEijUP) ! -> args out (allocated inside)
+                    ilineUP, & ! <-> args in-out
+                    pijUP, dEijUP) ! -> args out (allocated inside)
+                ! check returned arrays
+                IF (.NOT. ALLOCATED(pijUP)) ERROR STOP 'Array pijUP is not allocated.'
+                IF (ANY(SHAPE(pijUP) /= [3,nbUP,nbUP])) THEN
+                    WRITE (*,*) 'Array "pijUP" has shape', SHAPE(pijUP)
+                    WRITE (*,*) 'while expected', [3,nbUP,nbUP]
+                    ERROR STOP "Shape mismatch in array pijUP"
+                END IF
+                IF (.NOT. ALLOCATED(dEijUP)) ERROR STOP 'Array dEijUP is not allocated.'
+                IF (ANY(SHAPE(dEijUP) /= [nbUP,nbUP])) THEN
+                    WRITE (*,*) 'Array "dEijUP" has shape', SHAPE(dEijUP)
+                    WRITE (*,*) 'while expected', [nbUP,nbUP]
+                    ERROR STOP "Shape mismatch in array dEijUP"
+                END IF
                 ! spin DN momentum matrix elements
                 CALL read_mommat_pij (12, nbDN, nbb, & ! <- args in
-                        ilineDN, & ! <-> args in-out
-                        pijDN, dEijDN) ! -> args out (allocated inside)
+                    ilineDN, & ! <-> args in-out
+                    pijDN, dEijDN) ! -> args out (allocated inside)
+                ! check returned arrays
+                IF (.NOT. ALLOCATED(pijDN)) ERROR STOP 'Array pijDN is not allocated.'
+                IF (ANY(SHAPE(pijDN) /= [3,nbDN,nbDN])) THEN
+                    WRITE (*,*) 'Array "pijDN" has shape', SHAPE(pijDN)
+                    WRITE (*,*) 'while expected', [3,nbDN,nbDN]
+                    ERROR STOP "Shape mismatch in array pijDN"
+                END IF
+                IF (.NOT. ALLOCATED(dEijDN)) ERROR STOP 'Array dEijDN is not allocated.'
+                IF (ANY(SHAPE(dEijDN) /= [nbDN,nbDN])) THEN
+                    WRITE (*,*) 'Array "dEijDN" has shape', SHAPE(dEijDN)
+                    WRITE (*,*) 'while expected', [nbDN,nbDN]
+                    ERROR STOP "Shape mismatch in array dEijDN"
+                END IF
             END IF
         ELSE ! VASP
             IF (.NOT. ALLOCATED(pij)) THEN
@@ -540,6 +598,13 @@ DO ispin = 1, nstot
 
         CALL finddegenblocks(nb, dEij, 1.0e-5, & ! <- args in 
             dg_group, ngroups) ! -> args out (dg_group is allocated inside)
+        ! check returned arrays
+        IF (.NOT. ALLOCATED(dg_group)) ERROR STOP 'Array dg_group is not allocated.'
+        IF (ANY(SHAPE(dg_group) /= [nb])) THEN
+            WRITE (*,*) 'Array "dg_group" has shape', SHAPE(dg_group)
+            WRITE (*,*) 'while expected', [nb]
+            ERROR STOP "Shape mismatch in array dg_group"
+        END IF
 
         !! Handle situation when the degenerate block extends past 'nvb'
 
@@ -624,8 +689,7 @@ DO ispin = 1, nstot
                     ERROR STOP
                 END IF
                 ! allocate group-specific arrays
-                ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), &
-                    pijB(nb,nmg), dEijdg(nmg,nb) )
+                ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb) )
                 ! get group-specific matrix elements and energies
                 DO m = 1, nmg
                     pijA(m,:) = pij(alpha, members(m), :)
@@ -635,10 +699,24 @@ DO ispin = 1, nstot
                 ! solve degenerate PT problem
                 CALL degenbc(nb, idg1, idg2, & ! <- args in
                     pijA, pijB, dEijdg, & ! <- args in 
-                    bcurvdg) ! -> args out
+                    bcurvdg) ! -> args out (allocated inside)
+                ! check returned arrays
+                IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
+                IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
+                    WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
+                    WRITE (*,*) 'while expected', [nmg]
+                    ERROR STOP "Shape mismatch in array bcurvdg"
+                END IF
                 CALL degenoam(nb, idg1, idg2, & ! <- args in
                     pijA, pijB, dEijdg, & ! <- args in 
                     oamdg) ! -> args out (oamdg allocated inside)
+                ! check returned arrays
+                IF (.NOT. ALLOCATED(oamdg)) ERROR STOP 'Array oamdg is not allocated.'
+                IF (ANY(SHAPE(oamdg) /= [nmg])) THEN
+                    WRITE (*,*) 'Array "oamdg" has shape', SHAPE(oamdg)
+                    WRITE (*,*) 'while expected', [nmg]
+                    ERROR STOP "Shape mismatch in array oamdg"
+                END IF
                 ! store group result for the Berry curvature and OAM in array
                 DO m = 1, nmg
                     bcurv(members(m), ivoigt-3) = bcurvdg(m)
@@ -703,8 +781,7 @@ DO ispin = 1, nstot
                         ERROR STOP 'Wrong boundaries of the degenerate block'
                     END IF
                     ! allocate group-specific arrays
-                    ALLOCATE( oamdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
-                        dEijdg(nmg,nb))
+                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
                     ! get group-specific matrix elements and energies
                     DO m = 1, nmg
                         pijA(m,:) = pijUP(alpha, members(m), :)
@@ -714,7 +791,14 @@ DO ispin = 1, nstot
                     ! solve degenerate PT problem
                     CALL degenoam(nb, idg1, idg2, & ! <- args in
                         pijA, pijB, dEijdg, & ! <- args in 
-                        oamdg) ! -> args out
+                        oamdg) ! -> args out (allocated inside)
+                    ! check returned arrays
+                    IF (.NOT. ALLOCATED(oamdg)) ERROR STOP 'Array oamdg is not allocated.'
+                    IF (ANY(SHAPE(oamdg) /= [nmg])) THEN
+                        WRITE (*,*) 'Array "oamdg" has shape', SHAPE(oamdg)
+                        WRITE (*,*) 'while expected', [nmg]
+                        ERROR STOP "Shape mismatch in array oamdg"
+                    END IF
                     ! store group result for OAM in array
                     DO m = 1, nmg
                         oam(members(m), ivoigt-3) = oamdg(m)
@@ -766,8 +850,7 @@ DO ispin = 1, nstot
                         ERROR STOP 'Wrong boundaries of the degenerate block'
                     END IF
                     ! allocate group-specific arrays
-                    ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
-                        dEijdg(nmg,nb))
+                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
                     ! get group-specific matrix elements and energies
                     DO m = 1, nmg
                         pijA(m,:) = pijUP(alpha, members(m), :)
@@ -778,6 +861,13 @@ DO ispin = 1, nstot
                     CALL degenbc(nb, idg1, idg2, & ! <- args in
                         pijA, pijB, dEijdg, & ! <- args in 
                         bcurvdg) ! -> args out
+                    ! check returned arrays
+                    IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
+                    IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
+                        WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
+                        WRITE (*,*) 'while expected', [nmg]
+                        ERROR STOP "Shape mismatch in array bcurvdg"
+                    END IF
                     ! store group result for the Berry curvature in array
                     DO m = 1, nmg
                         bcurv(members(m), ivoigt-3) = bcurvdg(m)
@@ -831,8 +921,7 @@ DO ispin = 1, nstot
                         ERROR STOP 'Wrong boundaries of the degenerate block'
                     END IF
                     ! allocate group-specific arrays
-                    ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
-                        dEijdg(nmg,nb))
+                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
                     ! get group-specific matrix elements and energies
                     DO m = 1, nmg
                         pijA(m,:) = pijDN(alpha, members(m), :)
@@ -843,6 +932,13 @@ DO ispin = 1, nstot
                     CALL degenbc(nb, idg1, idg2, & ! <- args in
                         pijA, pijB, dEijdg, & ! <- args in 
                         bcurvdg) ! -> args out
+                    ! check returned arrays
+                    IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
+                    IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
+                        WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
+                        WRITE (*,*) 'while expected', [nmg]
+                        ERROR STOP "Shape mismatch in array bcurvdg"
+                    END IF
                     ! store group result for the Berry curvature in array
                     DO m = 1, nmg
                         bcurv(members(m), ivoigt-3) = bcurvdg(m)
@@ -896,8 +992,7 @@ DO ispin = 1, nstot
                         ERROR STOP 'Wrong boundaries of the degenerate block'
                     END IF
                     ! allocate group-specific arrays
-                    ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
-                        dEijdg(nmg,nb))
+                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
                     ! get group-specific matrix elements and energies
                     DO m = 1, nmg
                         pijA(m,:) = pijUP(alpha, members(m), :) - &!...
@@ -909,6 +1004,13 @@ DO ispin = 1, nstot
                     CALL degenbc(nb, idg1, idg2, & ! <- args in
                         pijA, pijB, dEijdg, & ! <- args in 
                         bcurvdg) ! -> args out
+                    ! check returned arrays
+                    IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
+                    IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
+                        WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
+                        WRITE (*,*) 'while expected', [nmg]
+                        ERROR STOP "Shape mismatch in array bcurvdg"
+                    END IF
                     ! store group result for the Berry curvature in array
                     DO m = 1, nmg
                         bcurv(members(m), ivoigt-3) = bcurvdg(m)
