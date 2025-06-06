@@ -32,7 +32,7 @@ REAL(kind=dp), ALLOCATABLE :: &
 
 CHARACTER(len=1), PARAMETER :: &
     uplo='U', & ! stores the upper triangular part of A
-    jobz = 'V' ! compute eigenvectors too
+    jobz = 'N' ! do not compute eigenvectors
 
 !! External subroutines
 
@@ -42,8 +42,15 @@ EXTERNAL :: &
 ALLOCATE( EIGV(n) ) ! allocate intent(out) array, but not deallocate here
 ALLOCATE( A(n,n) )
 
-!! Reassign H to another variable to avoid it being overwritten
+!! Check dimension and reassign H to another variable to avoid it being 
+!! overwritten
 
+IF (SIZE(H,1) /= n .OR. SIZE(H,2) /= n) THEN
+    WRITE(*,'(A,I0,A,I0,A,I0,A,I0,A)') &
+        'Error: input matrix H has shape (', SIZE(H,1), ',', SIZE(H,2), &
+        ') but expected (', n, ',', n, ')'
+    ERROR STOP 'Invalid matrix dimensions in eigvd'
+END IF
 A = H
 
 !! Determine size of work arrays

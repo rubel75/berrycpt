@@ -33,10 +33,20 @@ INTEGER :: top, i, j, k, gid
 allocate( dg_group(nb) ) ! allocate INTENT(OUT) array, but not deallocate here
 allocate ( visited(nb), stack(nb) )
 
+!! Check dimensions of INTENT(IN) arrays
+
+IF (SIZE(dEij,1) /= nb .OR. SIZE(dEij,2) /= nb) THEN
+    WRITE(*,'(A,I0,A,I0,A,I0,A)') &
+        'Error: dEij shape is (', SIZE(dEij,1), ',', SIZE(dEij,2), &
+        ') but expected square (', nb, ')'
+    ERROR STOP 'Inconsistent dEij dimensions'
+END IF
+
+!! Create groups
+
 visited = .FALSE.
 dg_group = 0
 gid = 0
-
 DO i = 1, nb
     IF (.NOT. visited(i)) THEN
         gid = gid + 1

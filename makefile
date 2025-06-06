@@ -12,18 +12,18 @@
 FC = ifort
 
 # Intel debuging
-FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0 #-heap-arrays
+FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0
 FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl -g -traceback -check all -warn all -debug all -O0
 
 # Intel performance
-#FCFLAGS =  -I${MKLROOT}/include -qopenmp -heap-arrays
-#FLFLAGS =  -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl
+# FCFLAGS =  -I${MKLROOT}/include -qopenmp
+# FLFLAGS =  -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl
 
 # GNU Fortran
 
-#FC = gfortran
-#FCFLAGS = -I${MKLROOT}/include -fopenmp -g -fbacktrace -ffpe-summary=none -fno-automatic
-#FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -fopenmp -ldl -g -fbacktrace -ffpe-summary=none
+# FC = gfortran
+# FCFLAGS = -I${MKLROOT}/include -fopenmp -g -fbacktrace -ffpe-summary=none
+# FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -fopenmp -ldl -g -fbacktrace -ffpe-summary=none
 
 # ~~~ Do not edit after that line ~~~
 

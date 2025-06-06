@@ -15,19 +15,25 @@ PROGRAM berrycpt
 !
 ! Execution:
 !   $ ./berrycpt arg1 -nvb arg3 [-so]
-!     arg1  - input mommat file name
+!     arg1  - input mommat file name from WIEN2k or VASP WAVEDER file
 !     arg3  - number of occupied bands
 !     -so   - optional switch for WIEN2k with spin-orbit coupling (SOC) 
-!             (sincluding spin-resolved Berry curvature)
+!             (including spin-resolved Berry curvature)
 !
-!   $ ./berrycpt WAVEDER -efermiev arg3
+!   $ ./berrycpt WAVEDER -efermiev arg3  # VASP only!
 !     arg3  - Fermi energy (in eV) to determine occupied bands
+!
+! Example (WIEN2k, spin-polarized, SOC):
+!   ./berrycpt case.mommat2 -nvb 56 -so
+!
+! Example (VASP with WAVEDER, using Fermi energy):
+!   ./berrycpt WAVEDER -efermiev 6.52
 !
 ! Output:
 !     bcurv_ij.dat         - contains elements of the Berry curvature tensor
 !     bcurv_ij-up.dat      - spin-up Berry curvature tensor elements
 !     bcurv_ij-dn.dat      - spin-down Berry curvature tensor elements
-!     bcurv_ij-up-dn.dat   - spin-offdiagonal Berry curvature elements
+!     bcurv_ij-up-dn.dat   - spin_z Berry curvature elements
 !     oam_ij.dat           - contains elements of the orbital angular momentum tensor
 !     (Note: Existing files will be overwritten)
 !
@@ -92,17 +98,18 @@ INTEGER :: &
     ilineUP, ilineDN, & ! ... for up/dn components (WIEN2k)
     ispin, & ! current spin (1/2)
     nb, & ! number of bands for a current k-point
-    nbUP, nbDN, & ! ... for up/dn components (WIEN2k)
+    nbUP, nbDN, & ! ... for up/dn components (WIEN2k unly)
     nbb, & ! number of band-to-band transition 
     nbcder, & ! the max number of bands for which the Berry curvature
               ! is calculated
               ! In WIEN2k we set it = to the total number of bands
               ! In VASP it is set in WAVEDER file as NBANDS_CDER
     ivb, i, j, ikpt, m, & ! counters
-    idg1, idg2, & ! intext of the first and last degenerate state in the block
+    idg1, idg2, & ! indices of the first and last degenerate states in a block
     n, & ! band indices
     nvb, & ! number of occupied bands [1:nvb]
-    nvbinpt, & ! inputed number of occupied bands [1:nvb]
+    nvbinpt=0, &    ! input number of occupied bands [1:nvb]
+                    ! (init. 0 as a flag of the variable being set)
     ivoigt, & ! Voigt index (1..6)
     alpha, beta, & ! Cartesian directions 1,2,3 = x,y,z
     ierr, & ! error code
@@ -287,8 +294,7 @@ IF ( wien2k ) THEN
                 nltotUP) ! -> args out
         CALL read_numlines(fnameinpDN, 1, & ! <- args in 
                 nltotDN) ! -> args out
-        IF ( (nltot.NE.nltotUP) .OR. (nltot.NE.nltotDN) .OR. &
-                (nltotUP.NE.nltotDN) ) THEN
+        IF ( (nltot.NE.nltotUP) .OR. (nltotUP.NE.nltotDN) ) THEN
             WRITE(*,*) 'Error: inconsistency in the length of input files' 
             WRITE(*,'(3A,I0)') '  the length of ', &
                     TRIM(fnameinp), ' = ', nltot
@@ -325,13 +331,32 @@ ELSE ! VASP
 END IF
 ! open input mommat/WAVEDER file(s) for reading (file ID = 1, [11, 12])
 IF ( wien2k ) THEN
-    OPEN (1, file = TRIM(fnameinp), status = 'old') ! case.mommat2
+    OPEN (1, file = TRIM(fnameinp), status = 'old', iostat=ierr) ! case.mommat2
+    IF (ierr /= 0) THEN
+        WRITE(*,*) 'Error opening output file ', TRIM(fnameinp)
+        ERROR STOP
+    END IF
     IF ( spinor ) THEN
-        OPEN (11, file = TRIM(fnameinpUP), status = 'old') ! case.mommat2up
-        OPEN (12, file = TRIM(fnameinpDN), status = 'old') ! case.mommat2dn
+        OPEN (11, file = TRIM(fnameinpUP), status = 'old', &
+            iostat=ierr) ! case.mommat2up
+        IF (ierr /= 0) THEN
+            WRITE(*,*) 'Error opening output file ', TRIM(fnameinpUP)
+            ERROR STOP
+        END IF
+        OPEN (12, file = TRIM(fnameinpDN), status = 'old', &
+            iostat=ierr) ! case.mommat2dn
+        IF (ierr /= 0) THEN
+            WRITE(*,*) 'Error opening output file ', TRIM(fnameinpDN)
+            ERROR STOP
+        END IF
     END IF
 ELSE ! VASP
-    OPEN (1, file = TRIM(fnameinp), form = 'unformatted', status = 'old')
+    OPEN (1, file = TRIM(fnameinp), form = 'unformatted', &
+        status = 'old', iostat=ierr)
+    IF (ierr /= 0) THEN
+        WRITE(*,*) 'Error opening output file ', TRIM(fnameinp)
+        ERROR STOP
+    END IF
 END IF
 
 !! Read VASP WAVEDER and EIGENVAL files to determine matrix elements
@@ -490,9 +515,10 @@ DO ispin = 1, nstot
             END IF
         ELSE ! VASP
             IF (.NOT. ALLOCATED(pij)) THEN
-                ALLOCATE( pij(3,nb,nb) )
-            ELSEIF (.NOT. ALLOCATED(dEij)) THEN
-                ALLOCATE( dEij(nb,nb) )
+                ALLOCATE(pij(3, nb, nb))
+            END IF
+            IF (.NOT. ALLOCATED(dEij)) THEN
+                ALLOCATE(dEij(nb, nb))
             END IF
             pij = pijks(:,:,:,ikpt,ispin)
             dEij = dEijks(:,:,ikpt,ispin)
@@ -503,7 +529,11 @@ DO ispin = 1, nstot
         IF (wien2k) THEN
             nvb = nvbinpt ! use input value for the last occupied band
         ELSE ! VASP
-            nvb = nbocck(ikpt,ispin)
+            IF ( nvbinpt > 0 ) THEN
+                nvb = nvbinpt
+            ELSE
+                nvb = nbocck(ikpt,ispin)
+            END IF
         END IF
 
         !! Identify band degeneracies
@@ -571,6 +601,10 @@ DO ispin = 1, nstot
                 IF (dg_group(n) == ig) THEN
                     m = m + 1
                     members(m) = n
+                ELSE IF (m > 0) THEN
+                    ! break the loop once first condition is not true any more,
+                    ! which marks the end of a degenerate block
+                    EXIT
                 END IF
             END DO
             ! loop over Voigt indices
@@ -586,7 +620,8 @@ DO ispin = 1, nstot
                 idg2 = members(nmg)
                 IF (idg1 .GT. idg2) THEN
                     WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
-                    ERROR STOP 'Wrong boundaries of the degenerate block'
+                    WRITE(*,*) 'Degenerate group misidentified: idg1 > idg2'
+                    ERROR STOP
                 END IF
                 ! allocate group-specific arrays
                 ALLOCATE( bcurvdg(nmg), pijA(nmg,nb), &
@@ -622,74 +657,78 @@ DO ispin = 1, nstot
         WRITE(2,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
         DEALLOCATE( bcurv, oam )
 
-        ! spin-resolved OAM
-        ! OAM^{sigma_z, up}_{ab,n} = <u|L_{ab}*1/2*(I+sigma_z)|u>
-        ! here I -- identity matrix,
-        !      sigma_z -- Pauli matrix
-        ! 1/2*(I+sigma_z) = (1 0; 0 0), leading to the PT sum over states
-        ! OAM^{sigma_z, up}_{ab,n} = 
-        !    ... sum_m 2*Im[p_{nm}^{up,up}*p_{mn}^{up,up}]/(E_n - E_m)
-        ! in atomic units
-        ALLOCATE( oam(nvb,3) )
-        oam = 0.0_dp
-        ! Loop over groups of degenerate bands in the range of [1:nvb].
-        ! Even if a band is not degenerate, it is still considered as
-        ! degeneracy of the size 1.
-        DO ig = 1, dg_group(nvb)
-            nmg = COUNT(dg_group == ig) ! number of group members
-            ALLOCATE( members(nmg) )
-            ! get bands that are members of the group
-            m = 0
-            DO n = 1, nb
-                IF (dg_group(n) == ig) THEN
-                    m = m + 1
-                    members(m) = n
-                END IF
-            END DO
-            ! loop over Voigt indices
-            DO ivoigt = 4, 6
-                ! handle Voigt notations
-                SELECT CASE (ivoigt)
-                    CASE (4); alpha = 2; beta = 3 ! 4=yz
-                    CASE (5); alpha = 1; beta = 3 ! 5=xz
-                    CASE (6); alpha = 1; beta = 2 ! 6=xy
-                END SELECT
-                ! degenerate group 1st and last band
-                idg1 = members(1)
-                idg2 = members(nmg)
-                IF (idg1 .GT. idg2) THEN
-                    WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
-                    ERROR STOP 'Wrong boundaries of the degenerate block'
-                END IF
-                ! allocate group-specific arrays
-                ALLOCATE( oamdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
-                    dEijdg(nmg,nb))
-                ! get group-specific matrix elements and energies
-                DO m = 1, nmg
-                    pijA(m,:) = pijUP(alpha, members(m), :)
-                    pijB(:,m) = pijUP(beta, :, members(m))
-                    dEijdg(m,:) = dEij(members(m), :)
-                END DO
-                ! solve degenerate PT problem
-                CALL degenoam(nb, idg1, idg2, & ! <- args in
-                    pijA, pijB, dEijdg, & ! <- args in 
-                    oamdg) ! -> args out
-                ! store group result for OAM in array
-                DO m = 1, nmg
-                    oam(members(m), ivoigt-3) = oamdg(m)
-                END DO
-                DEALLOCATE(pijA, pijB, dEijdg, oamdg)
-            END DO ! loop over 'ivoigt'
-            DEALLOCATE( members)
-        END DO ! loop over 'ig'
-        ! store OAM band-by-band for all occupied states
-        DO ivb = 1, nvb
-            WRITE(31,TRIM(wformat2)) ivb, (oam(ivb,j), j=1,3)
-        END DO
-        DEALLOCATE( oam )
-
-        ! calculate spin-resolved and spin Berry curvature
+        ! calculate spin-resolved and spin Berry curvature or OAM
         IF ( wien2k .AND. spinor ) THEN
+            ! spin-resolved OAM
+            ! OAM^{sigma_z, up}_{ab,n} = <u|L_{ab}*1/2*(I+sigma_z)|u>
+            ! here I -- identity matrix,
+            !      sigma_z -- Pauli matrix
+            ! 1/2*(I+sigma_z) = (1 0; 0 0), leading to the PT sum over states
+            ! OAM^{sigma_z, up}_{ab,n} = 
+            !    ... sum_m 2*Im[p_{nm}^{up,up}*p_{mn}^{up,up}]/(E_n - E_m)
+            ! in atomic units
+            ALLOCATE( oam(nvb,3) )
+            oam = 0.0_dp
+            ! Loop over groups of degenerate bands in the range of [1:nvb].
+            ! Even if a band is not degenerate, it is still considered as
+            ! degeneracy of the size 1.
+            DO ig = 1, dg_group(nvb)
+                nmg = COUNT(dg_group == ig) ! number of group members
+                ALLOCATE( members(nmg) )
+                ! get bands that are members of the group
+                m = 0
+                DO n = 1, nb
+                    IF (dg_group(n) == ig) THEN
+                        m = m + 1
+                        members(m) = n
+                    ELSE IF (m > 0) THEN
+                        ! break the loop once first condition is not true any more,
+                        ! which marks the end of a degenerate block
+                        EXIT
+                    END IF
+                END DO
+                ! loop over Voigt indices
+                DO ivoigt = 4, 6
+                    ! handle Voigt notations
+                    SELECT CASE (ivoigt)
+                        CASE (4); alpha = 2; beta = 3 ! 4=yz
+                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (6); alpha = 1; beta = 2 ! 6=xy
+                    END SELECT
+                    ! degenerate group 1st and last band
+                    idg1 = members(1)
+                    idg2 = members(nmg)
+                    IF (idg1 .GT. idg2) THEN
+                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
+                        ERROR STOP 'Wrong boundaries of the degenerate block'
+                    END IF
+                    ! allocate group-specific arrays
+                    ALLOCATE( oamdg(nmg), pijA(nmg,nb), pijB(nb,nmg), &
+                        dEijdg(nmg,nb))
+                    ! get group-specific matrix elements and energies
+                    DO m = 1, nmg
+                        pijA(m,:) = pijUP(alpha, members(m), :)
+                        pijB(:,m) = pijUP(beta, :, members(m))
+                        dEijdg(m,:) = dEij(members(m), :)
+                    END DO
+                    ! solve degenerate PT problem
+                    CALL degenoam(nb, idg1, idg2, & ! <- args in
+                        pijA, pijB, dEijdg, & ! <- args in 
+                        oamdg) ! -> args out
+                    ! store group result for OAM in array
+                    DO m = 1, nmg
+                        oam(members(m), ivoigt-3) = oamdg(m)
+                    END DO
+                    DEALLOCATE(pijA, pijB, dEijdg, oamdg)
+                END DO ! loop over 'ivoigt'
+                DEALLOCATE( members)
+            END DO ! loop over 'ig'
+            ! store OAM band-by-band for all occupied states
+            DO ivb = 1, nvb
+                WRITE(31,TRIM(wformat2)) ivb, (oam(ivb,j), j=1,3)
+            END DO
+            DEALLOCATE( oam )
+
             ! spin UP Berry curvature
             ALLOCATE( bcurv(nvb,3) )
             bcurv = 0.0_dp
@@ -705,6 +744,10 @@ DO ispin = 1, nstot
                     IF (dg_group(n) == ig) THEN
                         m = m + 1
                         members(m) = n
+                    ELSE IF (m > 0) THEN
+                        ! break the loop once first condition is not true any more,
+                        ! which marks the end of a degenerate block
+                        EXIT
                     END IF
                 END DO
                 ! loop over Voigt indices
@@ -766,6 +809,10 @@ DO ispin = 1, nstot
                     IF (dg_group(n) == ig) THEN
                         m = m + 1
                         members(m) = n
+                    ELSE IF (m > 0) THEN
+                        ! break the loop once first condition is not true any more,
+                        ! which marks the end of a degenerate block
+                        EXIT
                     END IF
                 END DO
                 ! loop over Voigt indices
@@ -827,6 +874,10 @@ DO ispin = 1, nstot
                     IF (dg_group(n) == ig) THEN
                         m = m + 1
                         members(m) = n
+                    ELSE IF (m > 0) THEN
+                        ! break the loop once first condition is not true any more,
+                        ! which marks the end of a degenerate block
+                        EXIT
                     END IF
                 END DO
                 ! loop over Voigt indices

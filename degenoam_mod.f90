@@ -40,12 +40,37 @@ INTEGER :: &
     i, j, & ! counter
     ndg ! number of degenerate bands
 
-!! construct M matrix
-
 ndg = 1+idg2-idg1 ! number of degenerate bands
 ALLOCATE( M(ndg,ndg), Mcorr(ndg,ndg) )
+
+!! Check dimensions of INTENT(IN) arrays
+
+! Check dimensions of pijA
+IF (SIZE(pijA, 1) /= ndg .OR. SIZE(pijA, 2) /= nb) THEN
+    WRITE(*,'(A,I0,A,I0,A,I0,A,I0,A)') &
+        'Error: pijA shape is (', SIZE(pijA,1), ',', SIZE(pijA,2), &
+        ') but expected (', ndg, ',', nb, ')'
+    ERROR STOP 'Inconsistent pijA dimensions'
+END IF
+! Check dimensions of pijB
+IF (SIZE(pijB, 1) /= nb .OR. SIZE(pijB, 2) /= ndg) THEN
+    WRITE(*,'(A,I0,A,I0,A,I0,A,I0,A)') &
+        'Error: pijB shape is (', SIZE(pijB,1), ',', SIZE(pijB,2), &
+        ') but expected (', nb, ',', ndg, ')'
+    ERROR STOP 'Inconsistent pijB dimensions'
+END IF
+! Check dimensions of dEij
+IF (SIZE(dEij, 1) /= ndg .OR. SIZE(dEij, 2) /= nb) THEN
+    WRITE(*,'(A,I0,A,I0,A,I0,A,I0,A)') &
+        'Error: dEij shape is (', SIZE(dEij,1), ',', SIZE(dEij,2), &
+        ') but expected (', ndg, ',', nb, ')'
+    ERROR STOP 'Inconsistent dEij dimensions'
+END IF
+
+!! construct M matrix
+    
 DO i = 1, ndg
-    DO j = 1, ndg
+    DO j = i, ndg
         idg = idg1 + i - 1
         M(i,j) = 0.0 ! initialize
         DO n = 1, nb
@@ -77,6 +102,7 @@ DO i = 1, ndg
                 M(i,j) = temp
             END IF
         END DO ! n
+        IF (i /= j) M(j,i) = M(i,j) ! symmetrize M
     END DO ! j
 END DO ! i
 
