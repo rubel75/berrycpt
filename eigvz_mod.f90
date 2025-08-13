@@ -1,7 +1,7 @@
-MODULE eigvd_mod
+MODULE eigvz_mod
 CONTAINS
 
-SUBROUTINE eigvd(n, H, & ! <- args in 
+SUBROUTINE eigvz(n, H, & ! <- args in 
             EIGV) ! -> args out
 
 ! Solve a _real_ matrix eigenvalue problem double precision
@@ -13,20 +13,23 @@ implicit none
 
 INTEGER, intent(in) :: &
     n ! size of H matrixs
-REAL(kind=dp), intent(in) :: &
+COMPLEX(kind=dp), intent(in) :: &
     H(:,:) ! square matrix (size n x n)
-REAL(kind=dp), allocatable, intent(out) :: &
+REAL(kind=dp), ALLOCATABLE, intent(out) :: &
     EIGV(:) ! eigenvalues
 
 !! Internal variables
 
 INTEGER :: &
-    lwork, liwork, & ! The size of the work arrays
+    lwork, lrwork, liwork, & ! The size of the work arrays
     info ! status argument
-INTEGER, ALLOCATABLE :: iwork(:) ! The size of the work array (lwork>=n)
-REAL(kind=dp), ALLOCATABLE :: &
+INTEGER, ALLOCATABLE :: &
+    iwork(:) ! The size of the work array (lwork>=n)
+COMPLEX(kind=dp), ALLOCATABLE :: &
     A(:,:), & ! used for H matrix and then overwritten by eigenvectors
     work(:) ! workspace array
+REAL(kind=dp), ALLOCATABLE :: &
+    rwork(:) ! workspace array
 
 !! Parameters
 
@@ -37,7 +40,7 @@ CHARACTER(len=1), PARAMETER :: &
 !! External subroutines
 
 EXTERNAL :: &
-    dsyevd ! Intel MKL
+    zheevd ! Intel MKL
 
 ALLOCATE( EIGV(n) ) ! allocate intent(out) array, but not deallocate here
 ALLOCATE( A(n,n) )
@@ -56,12 +59,13 @@ A = H
 !! Determine size of work arrays
 
 lwork = -1
+lrwork = -1
 liwork = -1
-allocate( work(1), iwork(1) )
-call dsyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! double precision (kind=8)
-!call ssyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! single precision (kind=4)
+allocate( work(1), rwork(1), iwork(1) )
+call zheevd(jobz, uplo, n, A, n, EIGV, work, lwork, rwork, lrwork, & !...
+    iwork, liwork, info) ! double precision (kind=8)
 IF (info .ne. 0) THEN
-    write (*,*) "ERROR in ssyevd (1st call): info = ", info
+    write (*,*) "ERROR in zheevd (1st call): info = ", info
     write (*,*) "If info = -i, the i-th parameter had an illegal value."
     write (*,*) "If info = i, and jobz = 'V', then the algorithm failed to "//&
         "compute an eigenvalue while working on the submatrix lying in "//&
@@ -69,17 +73,18 @@ IF (info .ne. 0) THEN
     error stop
 END IF
 lwork = INT( work(1) )
+lrwork = INT( rwork(1) )
 liwork = iwork(1)
-deallocate ( work, iwork )
+deallocate ( work, rwork, iwork )
 
 !! Solve eigenvalues problem
 
-allocate( work(lwork), iwork(liwork) )
-call dsyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! double precision (kind=8)
-!call ssyevd(jobz, uplo, n, A, n, EIGV, work, lwork, iwork, liwork, info) ! single precision (kind=4)
-deallocate ( work, iwork, A )
+allocate( work(lwork), rwork(lrwork), iwork(liwork) )
+call zheevd(jobz, uplo, n, A, n, EIGV, work, lwork, rwork, lrwork, & !...
+    iwork, liwork, info) ! double precision (kind=8)
+deallocate ( work, rwork, iwork, A )
 IF (info .ne. 0) THEN
-    write (*,*) "ERROR in ssyevd (2nd call): info = ", info
+    write (*,*) "ERROR in zheevd (2nd call): info = ", info
     write (*,*) "If info = -i, the i-th parameter had an illegal value."
     write (*,*) "If info = i, and jobz = 'V', then the algorithm failed to "//&
         "compute an eigenvalue while working on the submatrix lying in rows "//&
@@ -89,6 +94,6 @@ END IF
 ! eigenvectors are returned through A-matrix are not used
 
 RETURN
-END SUBROUTINE eigvd
+END SUBROUTINE eigvz
 
-END MODULE eigvd_mod
+END MODULE eigvz_mod

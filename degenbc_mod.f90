@@ -7,7 +7,7 @@ SUBROUTINE degenbc(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in
 ! Berry curvature for a block of degenerate bands
 
 USE precision_mod, ONLY: sp, dp
-USE eigvd_mod, ONLY: eigvd
+USE eigvz_mod, ONLY: eigvz
 IMPLICIT NONE
 
 !! Variables in/out
@@ -26,14 +26,14 @@ REAL(kind=dp), ALLOCATABLE, intent(out) :: &
 
 !! Variables internal
 
-REAL(kind=dp) :: &
+COMPLEX(kind=dp) :: &
     omega, & ! component leading to M(m,n)
-    temp, corrected_term ! intermediates for Kahan summation
-REAL(kind=dp), ALLOCATABLE :: &
+    temp, corrected_term, & ! intermediates for Kahan summation
+    p2 ! product of momentum matrix elements
+COMPLEX(kind=dp), ALLOCATABLE :: &
     M(:,:), & ! Matrix similar to Eq. (6) in mstar paper (https://doi.org/10.1016/j.cpc.2020.107648)
     Mcorr(:,:) ! intermediates for Kahan summation
 REAL(kind=sp) :: &
-    p2, & ! product of momentum matrix elements
     dE ! energy difference [Ha]
 INTEGER :: &
     n, & ! band index
@@ -71,16 +71,16 @@ END IF
 
 DO i = 1, ndg
     DO j = i, ndg
-        M(i,j) = 0.0_dp ! initialize
-        Mcorr(i,j) = 0.0_dp
+        M(i,j) = (0.0_dp, 0.0_dp) ! initialize
+        Mcorr(i,j) = (0.0_dp, 0.0_dp)
         DO n = 1, nb
             ! extract complex part of the product
             ! take into account that i*5i = -5
             IF (n < idg1 .or. n > idg2) THEN ! ignore degenerate bands
-                p2 = (-2.0_sp) * AIMAG( pijA(i,n)*pijB(n,j)) ! single precision
+                p2 = pijA(i,n)*pijB(n,j) - CONJG(pijB(n,i))*CONJG(pijA(j,n)) ! single precision
                 dE = (dEij(i,n) + dEij(j,n))/2.0_sp ! single precision
                 ! double precision
-                omega = REAL(p2, dp)/REAL(dE*dE, dp)
+                omega = CMPLX(p2, kind=dp)/REAL(dE*dE, dp)
                 ! make sure omega is finite (not NaN and not Inf)
                 IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
                     WRITE(*,*) 'i =', i
@@ -102,15 +102,22 @@ DO i = 1, ndg
                 M(i,j) = temp
             END IF
         END DO ! n
-        IF (i /= j) M(j,i) = M(i,j) ! symmetrize M
+        IF (i /= j) M(j,i) = CONJG(M(i,j)) ! symmetrize M
     END DO ! j
 END DO ! i
 
 !! Berry curvature is given by the eigenvalues of the M matrix
 
-! convert "M" to single precision to match eigvS
-CALL eigvd(ndg, M, & ! <- args in 
-    bcurv) ! -> args out (allocated inside)
+IF (ndg > 1) THEN ! more than 1 degenerate band, M is a matrix
+    ! At this point M is the skew-Hermitian matrix (purely complex diagonal 
+    ! elements). We need to make it Hermitian to work with "eigvz"
+    M = (0.0_dp, 1.0_dp) * M     ! M = i * M  → Hermitian
+    CALL eigvz(ndg, M, & ! <- args in 
+        bcurv) ! -> args out (allocated inside)
+ELSE ! band is not degenerate, M is a complex number (not matrix)
+    ALLOCATE( bcurv(ndg) )
+    bcurv(1) = - AIMAG(M(1,1))
+END IF
 
 DEALLOCATE( M, Mcorr )
 RETURN

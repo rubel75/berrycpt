@@ -41,10 +41,10 @@ F90S := $(filter-out %__genmod.f90, $(wildcard *.f90))
 ALL_OBJS := $(patsubst %.f90, %.o, $(F90S))
 
 # Remove berrycpt.o from the list
-OBJS := $(filter-out berrycpt.o precision_mod.o eigvd_mod.o, $(ALL_OBJS))
+OBJS := $(filter-out berrycpt.o precision_mod.o eigvd_mod.o eigvz_mod.o, $(ALL_OBJS))
 
 # Add precision_mod.o first and berrycpt.o last
-OBJS := precision_mod.o eigvd_mod.o $(OBJS) berrycpt.o
+OBJS := precision_mod.o eigvz_mod.o $(OBJS) berrycpt.o
 
 
 all: $(PROGRAM)
