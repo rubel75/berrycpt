@@ -18,7 +18,7 @@ SUBROUTINE finddegenblocks(nb, dEij, etol, dg_group, ngroups)
 !   - dg_group(nb) : array assigning each band a group ID (1 to ngroups)
 !   - ngroups      : total number of degenerate groups found
 
-USE precision_mod, ONLY: sp, dp
+USE precision_mod, ONLY: sp
 IMPLICIT NONE
 INTEGER, INTENT(IN) :: nb
 REAL(KIND=sp), INTENT(IN)  :: dEij(:, :) ! size nb x nb

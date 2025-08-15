@@ -9,11 +9,11 @@
 
 # Intel Fortran
 
-FC = ifort
+# FC = ifort
 
 # Intel debuging
-FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0
-FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl -g -traceback -check all -warn all -debug all -O0
+# FCFLAGS = -I${MKLROOT}/include -g -traceback -check all -warn all -debug all -qopenmp -O0
+# FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -qopenmp -ldl -g -traceback -check all -warn all -debug all -O0
 
 # Intel performance
 # FCFLAGS =  -I${MKLROOT}/include -qopenmp
@@ -21,9 +21,16 @@ FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core 
 
 # GNU Fortran
 
-# FC = gfortran
+FC = gfortran
+
+# GNU Fortran debuging
+FCFLAGS = -I${MKLROOT}/include -fopenmp -g -fbacktrace -fcheck=all -Wall -Wextra -Wsurprising -Wcharacter-truncation -Wintrinsics-std -Og -fno-omit-frame-pointer -ffpe-summary=none 
+FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -fopenmp -ldl -g -fbacktrace -ffpe-summary=none
+
+# GNU Fortran performance
 # FCFLAGS = -I${MKLROOT}/include -fopenmp -g -fbacktrace -ffpe-summary=none
 # FLFLAGS = -L${MKLROOT}/lib/intel64 -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -fopenmp -ldl -g -fbacktrace -ffpe-summary=none
+
 
 # ~~~ Do not edit after that line ~~~
 

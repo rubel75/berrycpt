@@ -6,7 +6,7 @@ SUBROUTINE eigvz(n, H, & ! <- args in
 
 ! Solve a _real_ matrix eigenvalue problem double precision
 
-USE precision_mod, ONLY: sp, dp
+USE precision_mod, ONLY: dp
 implicit none
 
 !! Variables in-out

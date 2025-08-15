@@ -32,7 +32,7 @@ INTEGER, allocatable, intent(out) :: &
 !! Variables internal
 
 CHARACTER(len=256) :: cline ! text in the current line
-INTEGER :: ispin, ikpt, iband, idim, im, in, i ! counters
+INTEGER :: ispin, ikpt=0, iband=0, idim, im, in, i ! counters
 INTEGER(kind=sp) :: dum1, dum2, dum3, dum4 ! not used
 REAL(kind=sp), allocatable :: occup(:) ! not used
 REAL(kind=dp), allocatable :: &

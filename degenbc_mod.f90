@@ -8,6 +8,7 @@ SUBROUTINE degenbc(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in
 
 USE precision_mod, ONLY: sp, dp
 USE eigvz_mod, ONLY: eigvz
+use, intrinsic :: ieee_arithmetic ! needed for IEEE_IS_FINITE
 IMPLICIT NONE
 
 !! Variables in/out
@@ -74,15 +75,14 @@ DO i = 1, ndg
         M(i,j) = (0.0_dp, 0.0_dp) ! initialize
         Mcorr(i,j) = (0.0_dp, 0.0_dp)
         DO n = 1, nb
-            ! extract complex part of the product
-            ! take into account that i*5i = -5
             IF (n < idg1 .or. n > idg2) THEN ! ignore degenerate bands
                 p2 = pijA(i,n)*pijB(n,j) - CONJG(pijB(n,i))*CONJG(pijA(j,n)) ! single precision
                 dE = (dEij(i,n) + dEij(j,n))/2.0_sp ! single precision
                 ! double precision
                 omega = CMPLX(p2, kind=dp)/REAL(dE*dE, dp)
                 ! make sure omega is finite (not NaN and not Inf)
-                IF (omega /= omega .or. abs(omega) > HUGE(abs(omega))) THEN
+                IF (.not. IEEE_IS_FINITE(AIMAG(omega)) &
+                .or. .not. IEEE_IS_FINITE(REAL(omega,dp))) THEN
                     WRITE(*,*) 'i =', i
                     WRITE(*,*) 'j =', j
                     WRITE(*,*) 'n =', n

@@ -9,7 +9,7 @@ SUBROUTINE read_mommat_pij (fid, nb, nbb, & ! <- args in
 ! E_i - E_j in a k-point block of mommat file
 
 !! Variables in-out
-USE precision_mod, ONLY: sp, dp
+USE precision_mod, ONLY: sp
 implicit none
 INTEGER, intent(in) :: &
     fid, & ! file ID
