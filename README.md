@@ -110,4 +110,11 @@ Options:
 
   with `P_{↑_z} = 1/2 * (I + σ_z) = [[1, 0], [0, 0]]` being the projection operator onto spin-up states. Here `I = [[1, 0], [0, 1]]` is the identity matrix.
 
+- `oam_generalized_ij.dat`  
+  Generalized orbital angular momentum (OAM) tensor for each k-point and band pair (n, m), including off-diagonal elements (m ≠ n) in atomic units:
+
+      L_{ab,nm}(k) = <u_{m,k}| L_{ab} |u_{n,k}>
+
+  The calculation follows Eq. (2) of Faria Junior et al. (2025), “Generalized many-body exciton g-factors: magnetic hybridization and non-monotonic Rydberg series in monolayer WSe2” ([doi:10.48550/arXiv.2505.18468](https://doi.org/10.48550/arXiv.2505.18468)), with the double counting in Eq. (2) corrected.
+
 > **Note**: All files will be overwritten if they exist from a previous run.
