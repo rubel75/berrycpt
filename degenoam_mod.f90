@@ -76,7 +76,12 @@ DO i = 1, ndg
         Mcorr(i,j) = (0.0_dp, 0.0_dp)
         DO n = 1, nb
             IF (n < idg1 .or. n > idg2) THEN ! ignore degenerate bands
+                ! note that pijB(i,n) = CONJG(pijB(n,i))
                 p2 = pijA(i,n)*pijB(n,j) - CONJG(pijB(n,i))*CONJG(pijA(j,n)) ! single precision
+                ! dEij(i,n) = E(n) - E(i)
+                ! E.g., dEij(1,20) = +0.067 Ha, while dEij(20,1) = -0.067 Ha
+                ! According to OAM derivation, the denominator should be [E(n) - E(i)].
+                ! Then, it is correct to use dEij(i,n) and NOT dEij(n,i)
                 dE = (dEij(i,n) + dEij(j,n))/2.0_sp ! single precision
                 ! double precision
                 Lnln = CMPLX(p2, kind=dp)/REAL(dE, kind=dp)

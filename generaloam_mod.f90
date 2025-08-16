@@ -1,7 +1,8 @@
 MODULE generaloam_mod
 CONTAINS
 
-SUBROUTINE generaloam(nb, nvb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
+SUBROUTINE generaloam(nb, nvb, idg1, idg2, dg_group, & ! <- args in 
+    pijA, pijB, dEij, & ! <- args in 
     oamgnrlzdg) ! -> args out
 
 ! Orbital angular momentum (OAM) for a block of degenerate bands
@@ -16,7 +17,8 @@ IMPLICIT NONE
 INTEGER, intent(in) :: &
     nb, & ! number of bands for a current k-point
     nvb, & ! number of valence bands for a current k-point
-    idg1, idg2 ! intext of the first and last degenerate state in the block
+    idg1, idg2, & ! intext of the first and last degenerate state in the block
+    dg_group(:) ! array assigning each band a group ID (1 to ngroups)
 COMPLEX(kind=sp), intent(in) :: &
     pijA(:,:), & ! momentum matrix elements [at.u.]
     pijB(:,:)
@@ -74,14 +76,24 @@ DO i = idg1, idg2
         M(i,j) = (0.0_dp, 0.0_dp)! initialize
         Mcorr(i,j) = (0.0_dp, 0.0_dp)
         DO n = 1, nb
-            ! The summation done in 2 terms
+            ! The summation is done in 2 terms: L_{i,j} = L1_{i,j} - L2_{i,j}
+            ! The calculation follows Eq. (2) of Faria Junior et al. (2025), 
+            ! "Generalized many-body exciton g-factors: magnetic hybridization 
+            ! and non-monotonic Rydberg series in monolayer WSe2"
+            ! (doi:10.48550/arXiv.2505.18468), with the double counting in 
+            ! Eq. (2) corrected.
+            !
             ! Term 1:
             ! L1_{i,j} = (i*hbar/2*m0)*SUM_{n /= i, with i \in D} (px_{i,n}*py_{n,j} - py_{i,n}*px_{n,j})/(E_{i} - E_{n})
             ! here D is a subset of degenerate bands in the range [idg1, idg2]
-            IF ( n < idg1 .or. n > idg2 ) THEN ! ignore degenerate bands (n={D})
+            IF ( dg_group(n) /=  dg_group(i) ) THEN ! bands 'i' and 'n' are _not_ in the same degenerate block, which also excludes n = i
                 ! note that pijB(i,n) = CONJG(pijB(n,i))
                 p2 = pijA(i,n)*pijB(n,j) - CONJG(pijB(n,i))*CONJG(pijA(j,n)) ! single precision
                 ! double precision
+                ! dEij(i,n) = E(n) - E(i)
+                ! E.g., dEij(1,20) = +0.067 Ha, while dEij(20,1) = -0.067 Ha
+                ! According to OAM derivation, the denominator should be [E(n) - E(i)].
+                ! Then, it is correct to use dEij(i,n) and NOT dEij(n,i)
                 Lnlm = CMPLX(p2, kind=dp)/REAL(dEij(i,n), kind=dp)
                 ! make sure Lnlm is finite (not NaN and not Inf)
                 IF (.not. IEEE_IS_FINITE(AIMAG(Lnlm)) &
@@ -103,17 +115,13 @@ DO i = idg1, idg2
                 M(i,j) = temp
             END IF ! term 1
             ! Term 2:
-            ! L2_{i,j} = (i*hbar/2*m0)*SUM_{n /= j, with i \in D} (px_{i,n}*py_{n,j} - py_{i,n}*px_{n,j})/(E_{i} - E_{n})
+            ! L2_{i,j} = (-1) * (i*hbar/2*m0)*SUM_{n /= j, with i \in D} (px_{i,n}*py_{n,j} - py_{i,n}*px_{n,j})/(E_{i} - E_{n})
             ! here D is a subset of degenerate bands in the range [idg1, idg2]
-            IF ( n /= j ) THEN ! ignore degenerate bands (n=j)
-                ! ignore degenerate bands (j={D} and n={D} at the same time)
-                IF ( (j >= idg1 .or. j <= idg2) .and. (n >= idg1 .or. n <= idg2) ) THEN 
-                    CYCLE ! go to next 'n' and skip the term
-                END IF
+            IF ( dg_group(n) /=  dg_group(j) ) THEN ! bands 'j' and 'n' are _not_ in the same degenerate block, which also excludes n = j
                 ! note that pijB(i,n) = CONJG(pijB(n,i))
                 p2 = pijA(i,n)*pijB(n,j) - CONJG(pijB(n,i))*CONJG(pijA(j,n)) ! single precision
-                ! double precision
-                Lnlm = CMPLX(p2, kind=dp)/REAL(dEij(j,n), kind=dp)
+                ! double precision (note _negative_ p2 for the 2nd term)
+                Lnlm = CMPLX( -p2, kind=dp)/REAL(dEij(j,n), kind=dp)
                 ! make sure Lnlm is finite (not NaN and not Inf)
                 IF (.not. IEEE_IS_FINITE(AIMAG(Lnlm)) &
                     .or. .not. IEEE_IS_FINITE(REAL(Lnlm,dp))) THEN
@@ -122,7 +130,7 @@ DO i = idg1, idg2
                     WRITE(*,*) 'n =', n
                     WRITE(*,*) 'pijA(i,n) =', pijA(i,n)
                     WRITE(*,*) 'pijB(n,j) =', pijB(n,j)
-                    WRITE(*,*) 'dEij(i,n) =', dEij(i,n)
+                    WRITE(*,*) 'dEij(j,n) =', dEij(j,n)
                     WRITE(*,*) 'Lnlm = ', Lnlm
                     WRITE(*,*) 'p2 = ', p2
                     ERROR STOP 'Error: Lnlm is not finite'

@@ -713,6 +713,7 @@ DO ispin = 1, nstot
             ! loop over Voigt indices
             DO ivoigt = 4, 6
                 ! handle Voigt notations
+                alpha = 0; beta = 0 ! initialize
                 SELECT CASE (ivoigt)
                     CASE (4); alpha = 2; beta = 3 ! 4=yz
                     CASE (5); alpha = 1; beta = 3 ! 5=xz
@@ -757,7 +758,7 @@ DO ispin = 1, nstot
                     ERROR STOP "Shape mismatch in array oamdg"
                 END IF
                 ! solve degenerate PT problem for generalized OAM(i,j)
-                CALL generaloam(nb, nvb, idg1, idg2, & ! <- args in
+                CALL generaloam(nb, nvb, idg1, idg2, dg_group, & ! <- args in
                     pij(alpha,1:nvb,:), pij(beta,:,1:nvb), dEij, & ! <- args in 
                     oamgnrlzdg) ! -> args out (oamgnrlzdg allocated inside)
                 ! check returned arrays
@@ -830,6 +831,7 @@ DO ispin = 1, nstot
                 ! loop over Voigt indices
                 DO ivoigt = 4, 6
                     ! handle Voigt notations
+                    alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
                         CASE (5); alpha = 1; beta = 3 ! 5=xz
@@ -899,6 +901,7 @@ DO ispin = 1, nstot
                 ! loop over Voigt indices
                 DO ivoigt = 4, 6
                     ! handle Voigt notations
+                    alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
                         CASE (5); alpha = 1; beta = 3 ! 5=xz
@@ -970,6 +973,7 @@ DO ispin = 1, nstot
                 ! loop over Voigt indices
                 DO ivoigt = 4, 6
                     ! handle Voigt notations
+                    alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
                         CASE (5); alpha = 1; beta = 3 ! 5=xz
@@ -1041,6 +1045,7 @@ DO ispin = 1, nstot
                 ! loop over Voigt indices
                 DO ivoigt = 4, 6
                     ! handle Voigt notations
+                    alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
                         CASE (5); alpha = 1; beta = 3 ! 5=xz
