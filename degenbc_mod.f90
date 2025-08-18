@@ -8,6 +8,7 @@ SUBROUTINE degenbc(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in
 
 USE precision_mod, ONLY: sp, dp
 USE eigvz_mod, ONLY: eigvz
+USE is_hermitian_mod, ONLY: is_hermitian
 use, intrinsic :: ieee_arithmetic ! needed for IEEE_IS_FINITE
 IMPLICIT NONE
 
@@ -40,6 +41,11 @@ INTEGER :: &
     n, & ! band index
     i, j, & ! counter
     ndg ! number of degenerate bands
+
+!! Parameters
+
+CHARACTER(len=256), PARAMETER :: &
+    wformat_m = '(*( :, "(", ES12.4E3, ",", ES12.4E3, ")", : , 1X ))'
 
 ndg = 1+idg2-idg1 ! number of degenerate bands
 ALLOCATE( M(ndg,ndg), Mcorr(ndg,ndg) )
@@ -79,7 +85,7 @@ DO i = 1, ndg
                 p2 = pijA(i,n)*pijB(n,j) - CONJG(pijB(n,i))*CONJG(pijA(j,n)) ! single precision
                 dE = (dEij(i,n) + dEij(j,n))/2.0_sp ! single precision
                 ! double precision
-                omega = CMPLX(p2, kind=dp)/REAL(dE*dE, dp)
+                omega = (0.0_dp, 1.0_dp) * CMPLX(p2, kind=dp)/REAL(dE*dE, dp)
                 ! make sure omega is finite (not NaN and not Inf)
                 IF (.not. IEEE_IS_FINITE(AIMAG(omega)) &
                 .or. .not. IEEE_IS_FINITE(REAL(omega,dp))) THEN
@@ -102,7 +108,7 @@ DO i = 1, ndg
                 M(i,j) = temp
             END IF
         END DO ! n
-        IF (i /= j) M(j,i) = CONJG(M(i,j)) ! symmetrize M
+        IF (i /= j) M(j,i) = CONJG(M(i,j)) ! Hermitian M
     END DO ! j
 END DO ! i
 
@@ -111,7 +117,13 @@ END DO ! i
 IF (ndg > 1) THEN ! more than 1 degenerate band, M is a matrix
     ! At this point M is the skew-Hermitian matrix (purely complex diagonal 
     ! elements). We need to make it Hermitian to work with "eigvz"
-    M = (0.0_dp, 1.0_dp) * M     ! M = i * M  → Hermitian
+    IF (.not. is_hermitian(M)) THEN
+        WRITE(*,'(A)') 'M='
+        DO i = 1, ndg
+            WRITE(*,wformat_m) (M(i, j), j=1,ndg)
+        END DO
+        ERROR STOP 'in degenbc: Matrix "M" is not Hermitian'
+    END IF
     CALL eigvz(ndg, M, & ! <- args in 
         bcurv) ! -> args out (allocated inside)
 ELSE ! band is not degenerate, M is a complex number (not matrix)

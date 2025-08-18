@@ -110,7 +110,7 @@ Options:
 
   with `P_{↑_z} = 1/2 * (I + σ_z) = [[1, 0], [0, 0]]` being the projection operator onto spin-up states. Here `I = [[1, 0], [0, 1]]` is the identity matrix.
 
-- `oam_generalized_ij.dat`  
+- `goam_ij_nm.dat`  
   Generalized orbital angular momentum (OAM) tensor for each k-point and band pair (n, m), including off-diagonal elements (m ≠ n) in atomic units:
 
       L_{ab,nm}(k) = <u_{m,k}| L_{ab} |u_{n,k}>
