@@ -673,7 +673,7 @@ DO ispin = 1, nstot
         
         !! Prepare output formats for Berry curvatures
         
-        WRITE(wformat2,'(I0)') nbcder ! make a character of the length 'nbcder'
+        WRITE(wformat2,'(I0)') nvb ! make a character of the length 'nvb'
         ! format line to WRITE Berry curvatures
         WRITE(wformat2,'(I0)') LEN(TRIM(wformat2))
         wformat2 = '(I' // TRIM(wformat2) // ',1X,5(es10.3,1X),es10.3)'
