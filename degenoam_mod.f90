@@ -133,7 +133,7 @@ IF (ndg > 1) THEN ! more than 1 degenerate band, M is a matrix
         oam) ! -> args out (allocated inside)
 ELSE ! band is not degenerate, M is a complex number (not matrix)
     ALLOCATE( oam(ndg) )
-    oam(1) = - AIMAG(M(1,1))
+    oam(1) = REAL(M(1,1))
 END IF
 
 DEALLOCATE( M, Mcorr )

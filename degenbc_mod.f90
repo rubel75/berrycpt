@@ -128,7 +128,7 @@ IF (ndg > 1) THEN ! more than 1 degenerate band, M is a matrix
         bcurv) ! -> args out (allocated inside)
 ELSE ! band is not degenerate, M is a complex number (not matrix)
     ALLOCATE( bcurv(ndg) )
-    bcurv(1) = - AIMAG(M(1,1))
+    bcurv(1) = REAL(M(1,1))
 END IF
 
 DEALLOCATE( M, Mcorr )
