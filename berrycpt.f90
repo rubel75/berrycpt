@@ -717,7 +717,7 @@ DO ispin = 1, nstot
                 alpha = 0; beta = 0 ! initialize
                 SELECT CASE (ivoigt)
                     CASE (4); alpha = 2; beta = 3 ! 4=yz
-                    CASE (5); alpha = 1; beta = 3 ! 5=xz
+                    CASE (5); alpha = 3; beta = 1 ! 5=zx
                     CASE (6); alpha = 1; beta = 2 ! 6=xy
                 END SELECT
                 ! degenerate group 1st and last band
@@ -835,7 +835,7 @@ DO ispin = 1, nstot
                     alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (5); alpha = 3; beta = 1 ! 5=zx
                         CASE (6); alpha = 1; beta = 2 ! 6=xy
                     END SELECT
                     ! degenerate group 1st and last band
@@ -905,7 +905,7 @@ DO ispin = 1, nstot
                     alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (5); alpha = 3; beta = 1 ! 5=zx
                         CASE (6); alpha = 1; beta = 2 ! 6=xy
                     END SELECT
                     ! degenerate group 1st and last band
@@ -977,7 +977,7 @@ DO ispin = 1, nstot
                     alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (5); alpha = 3; beta = 1 ! 5=zx
                         CASE (6); alpha = 1; beta = 2 ! 6=xy
                     END SELECT
                     ! degenerate group 1st and last band
@@ -1049,7 +1049,7 @@ DO ispin = 1, nstot
                     alpha = 0; beta = 0 ! initialize
                     SELECT CASE (ivoigt)
                         CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 1; beta = 3 ! 5=xz
+                        CASE (5); alpha = 3; beta = 1 ! 5=zx
                         CASE (6); alpha = 1; beta = 2 ! 6=xy
                     END SELECT
                     ! degenerate group 1st and last band
