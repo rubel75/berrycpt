@@ -1,1 +1,1 @@
-Execution command: ../../berrycpt CoSi-berrycpt.mommat2 -nvb 76 -so
+Execution command: ../../berrycpt CoSi-berrycpt.mommat2 CoSi-berrycpt.mommat2up CoSi-berrycpt.mommat2dn --enefile CoSi-berrycpt.energyso --efermiry 0.8782005017

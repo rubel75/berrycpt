@@ -21,7 +21,7 @@ COMPLEX(kind=sp), intent(in) :: &
     pijA(:,:), & ! momentum matrix elements [at.u.]
     pijB(:,:)
 REAL(kind=sp), intent(in) :: &
-    dEij(:,:) ! energy differences E_i-E_j [Ha]
+    dEij(:,:) ! energy differences E_n-E_i [Ha]
 REAL(kind=dp), ALLOCATABLE, intent(out) :: &
     oam(:)  ! Berry curvature for a block of degenerate bands 
             ! (allocated inside CALL eigvd(...) )
@@ -33,10 +33,12 @@ COMPLEX(kind=dp), ALLOCATABLE :: &
     Mcorr(:,:) ! intermediates for Kahan summation
 COMPLEX(kind=dp) :: &
     Lnln, & ! component leading to M(m,n)
-    temp, corrected_term, & ! intermediates for Kahan summation    
-    p2 ! product of momentum matrix elements
-REAL(kind=sp) :: &
-    dE ! energy difference [Ha]
+    temp, corrected_term ! intermediates for Kahan summation
+COMPLEX(kind=sp) :: &
+    p2 ! antisymmetrized product of momentum matrix elements
+REAL(kind=dp) :: &
+    dEi, dEj, & ! E_n-E_i and E_n-E_j [Ha]
+    inverse_gap_sym ! symmetrized reciprocal energy denominator [Ha^-1]
 INTEGER :: &
     n, & ! band indices
     i, j, & ! counter
@@ -74,26 +76,58 @@ IF (SIZE(dEij, 1) /= ndg .OR. SIZE(dEij, 2) /= nb) THEN
     ERROR STOP 'Inconsistent dEij dimensions'
 END IF
 
-!! construct M matrix
-    
+!! Construct the effective Hermitian OAM matrix
+!
+! For a degenerate block, the matrix element is
+!
+!   M_ij = (i/2) SUM_n P_ijn *
+!          [1/(E_n-E_i) + 1/(E_n-E_j)],
+!
+! where
+!
+!   P_ijn = A_i,n B_n,j - B_i,n A_n,j.
+!
+! Intermediate states n inside the current degenerate block are excluded.
+! The input convention is dEij(i,n) = E_n-E_i.
+!
+! For i = j, the expression reduces to
+!
+!   M_ii = i SUM_n P_iin/(E_n-E_i)
+!        = 2 SUM_n Im[A_i,n B_n,i]/(E_i-E_n),
+!
+! which is exactly the validated non-degenerate OAM formula. For E_i=E_j,
+! the expression is also identical to the previous degenerate formula. The
+! difference appears only for numerically near-degenerate external states.
+
 DO i = 1, ndg
     DO j = i, ndg
-        M(i,j) = (0.0_dp, 0.0_dp)! initialize
+        M(i,j) = (0.0_dp, 0.0_dp) ! initialize
         Mcorr(i,j) = (0.0_dp, 0.0_dp)
         DO n = 1, nb
-            IF (n < idg1 .or. n > idg2) THEN ! ignore degenerate bands
+            IF (n < idg1 .OR. n > idg2) THEN ! ignore degenerate bands
                 ! note that pijB(i,n) = CONJG(pijB(n,i))
-                p2 = pijA(i,n)*pijB(n,j) - CONJG(pijB(n,i))*CONJG(pijA(j,n)) ! single precision
-                ! dEij(i,n) = E(n) - E(i)
-                ! E.g., dEij(1,20) = +0.067 Ha, while dEij(20,1) = -0.067 Ha
-                ! According to OAM derivation, the denominator should be [E(n) - E(i)].
-                ! Then, it is correct to use dEij(i,n) and NOT dEij(n,i)
-                dE = (dEij(i,n) + dEij(j,n))/2.0_sp ! single precision
-                ! double precision
-                Lnln = (0.0_dp, 1.0_dp) * CMPLX(p2, kind=dp)/REAL(dE, kind=dp)
+                ! Products are formed in sp, then promoted to dp before
+                ! division and Kahan compensated summation.
+                p2 = pijA(i,n)*pijB(n,j) - &
+                    CONJG(pijB(n,i))*CONJG(pijA(j,n))
+
+                dEi = REAL(dEij(i,n), KIND=dp)
+                dEj = REAL(dEij(j,n), KIND=dp)
+
+                ! Preserve the validated isolated-band operation directly.
+                ! For i /= j, use the Hermitian average of reciprocal gaps.
+                IF (i == j) THEN
+                    inverse_gap_sym = 1.0_dp/dEi
+                ELSE
+                    inverse_gap_sym = 0.5_dp*(1.0_dp/dEi + 1.0_dp/dEj)
+                END IF
+
+                Lnln = (0.0_dp, 1.0_dp) * CMPLX(p2, KIND=dp) * &
+                    CMPLX(inverse_gap_sym, 0.0_dp, KIND=dp)
+
                 ! make sure Lnln is finite (not NaN and not Inf)
-                IF (.not. IEEE_IS_FINITE(AIMAG(Lnln)) &
-                    .or. .not. IEEE_IS_FINITE(REAL(Lnln,dp))) THEN
+                IF (.NOT. IEEE_IS_FINITE(AIMAG(Lnln)) &
+                    .OR. .NOT. IEEE_IS_FINITE(REAL(Lnln,dp))) THEN
                     WRITE(*,*) 'i =', i
                     WRITE(*,*) 'j =', j
                     WRITE(*,*) 'n =', n
@@ -101,8 +135,8 @@ DO i = 1, ndg
                     WRITE(*,*) 'pijB(n,j) =', pijB(n,j)
                     WRITE(*,*) 'dEij(i,n) =', dEij(i,n)
                     WRITE(*,*) 'dEij(j,n) =', dEij(j,n)
+                    WRITE(*,*) 'inverse_gap_sym = ', inverse_gap_sym
                     WRITE(*,*) 'Lnln = ', Lnln
-                    WRITE(*,*) 'dE = ', dE
                     WRITE(*,*) 'p2 = ', p2
                     ERROR STOP 'Error: Lnln is not finite'
                 END IF
@@ -120,8 +154,7 @@ END DO ! i
 !! OAM is eigenvalues of the M matrix
 
 IF (ndg > 1) THEN ! more than 1 degenerate band, M is a matrix
-    ! At this point M is the skew-Hermitian matrix (purely complex diagonal 
-    ! elements). We need to make it Hermitian to work with "eigvz"
+    ! M is Hermitian and can be diagonalized with eigvz.
     IF (.not. is_hermitian(M)) THEN
         WRITE(*,'(A)') 'M='
         DO i = 1, ndg

@@ -1,1260 +1,686 @@
 PROGRAM berrycpt
-! Includes subprograms:
-!     degenbc.f90       -- Handles perturbation theory for degenerate states when 
-!                          calculating Berry curvature
-!     degenoam.f90      -- Handles perturbation theory for degenerate states when 
-!                          calculating orbital angular momentum (OAM)
-!     eigvz.f90         -- Solves a complex eigenvalue problem for a Hermitian matrix
-!     read_mommat_nb.f90 -- Determines the number of bands in a k-point block of 
-!                          the mommat file
-!     read_mommat_pij.f90 -- Reads momentum matrix elements <i|p_a|j> (a = x, y, z) 
-!                          and energy differences E_i - E_j in a k-point block of the mommat file
-!     read_numlines.f90 -- Reads the number of lines in a file
+! BerryCPT calculates band-resolved Berry curvature, orbital angular
+! momentum, and generalized orbital-angular-momentum matrices from
+! momentum or wave-function-derivative matrix elements.
 !
-! (c) Oleg Rubel, Sep 2024
+! Supported input:
 !
-! Execution:
-!   $ ./berrycpt arg1 -nvb arg3 [-so]
-!     arg1  - input mommat file name from WIEN2k or VASP WAVEDER file
-!     arg3  - number of occupied bands
-!     -so   - optional switch for WIEN2k with spin-orbit coupling (SOC) 
-!             (including spin-resolved Berry curvature)
+!   WIEN2k
+!     - one case.mommat2 file for ordinary calculations
+!     - three matrix-element files, total, spin-up, and spin-down,
+!       for spin-resolved calculations with spin-orbit coupling
+!     - case.energy, case.energyup/dn, case.energyso, or case.energysoup/dn
+!     - case.weight or case.weightup/dn when DFT occupations
+!       are requested
 !
-!   $ ./berrycpt WAVEDER -efermiev arg3  # VASP only!
-!     arg3  - Fermi energy (in eV) to determine occupied bands
+!   VASP
+!     - WAVEDER or WAVEDERF
+!     - EIGENVAL from the same calculation
 !
-! Example (WIEN2k, spin-polarized, SOC):
-!   ./berrycpt case.mommat2 -nvb 56 -so
+! Exactly one occupation mode must be selected:
 !
-! Example (VASP with WAVEDER, using Fermi energy):
-!   ./berrycpt WAVEDER -efermiev 6.52
+!   --efermiev EF
+!       Step-function occupations using the Fermi energy EF in eV.
 !
-! Output:
-!     bcurv_ij.dat         - contains elements of the Berry curvature tensor
-!     bcurv_ij-up.dat      - spin-up Berry curvature tensor elements
-!     bcurv_ij-dn.dat      - spin-down Berry curvature tensor elements
-!     bcurv_ij-up-dn.dat   - spin_z Berry curvature elements
-!     oam_ij.dat           - contains elements of the orbital angular momentum tensor
-!     goam_ij.dat          - contains elements of the generalized orbital angular momentum tensor
-!     (Note: Existing files will be overwritten)
+!   --efermiry EF
+!       Step-function occupations using the Fermi energy EF in Ry.
 !
-! Tips:
-! (1) Writing of the mommat file is _not_ enabled by default in WIEN2k.
-!     To enable writing, edit the case.inop file and change
-!     OFF to ON in the following line:
+!   --dftocc
+!       Occupations supplied by the DFT calculation. WIEN2k also
+!       requires --occfile. VASP occupations are read from EIGENVAL.
+!
+! Use
+!
+!   ./berrycpt --help
+!
+! for the complete command-line syntax.
+!
+! Examples:
+!
+!   VASP:
+!
+!     ./berrycpt WAVEDER --enefile EIGENVAL --efermiev 6.52
+!
+!     ./berrycpt WAVEDER --enefile EIGENVAL --dftocc
+!
+!   WIEN2k without spin-resolved matrix elements:
+!
+!     ./berrycpt case.mommat2 --enefile case.energy --efermiry 0.73
+!
+!   WIEN2k with spin-resolved matrix elements and SOC:
+!
+!     ./berrycpt case.mommat2 case.mommat2up case.mommat2dn \
+!         --enefile case.energyso --dftocc --occfile case.weight
+!
+! Calculated quantities:
+!
+!   bcurv_ij[-up/-dn].dat
+!       Ordinary Berry curvature resolved by band and k-point.
+!
+!   bcurv_ij-up.dat
+!   bcurv_ij-dn.dat
+!       Spin-up and spin-down contributions to the Berry curvature.
+!       These files are produced when spin-resolved WIEN2k matrix
+!       elements are supplied.
+!
+!   bcurv_ij-up-dn.dat
+!       Sigma_z-normalized spin Berry curvature.
+!
+!   oam_ij[-up/-dn].dat
+!       Orbital angular momentum resolved by band and k-point.
+!
+!   oam_ij-sigma_z-up.dat
+!       Spin-up-projected orbital angular momentum.
+!
+!   goam_ij_nm[-up/-dn].dat
+!       Complex generalized orbital-angular-momentum matrices in the
+!       original DFT eigenstate basis.
+!
+! The pseudovector component order is
+!
+!   yz, zx, xy
+!
+! corresponding to Voigt indices 4, 5, and 6. Berry curvature is
+! reported in bohr^2. Orbital angular momentum is reported in hbar.
+!
+! Existing output files are replaced. Each output file contains a
+! detailed header describing its columns, k-point organization,
+! degenerate-block labels, and matrix layout. At normal termination,
+! berrycpt prints a summary of all output files that were created.
+!
+! Tips for generating matrix elements
+!
+! (1) WIEN2k does not write the mommat file by default.
+!
+!     In case.inop, enable writing of momentum matrix elements by
+!     changing OFF to ON:
+!
 !         ON           ON/OFF   WRITEs MME to unit 4
 !         -^
 !
-! (2) Ensure _plenty_ of empty bands are included during SCF:
-!     (a) Increase "de" in case.in1(c) above 5 Ry:
-!         K-VECTORS FROM UNIT:4   -9.0      10.0    10   emin / de (emax = Ef + de) / nband
-!                                     ------------------^
+! (2) Include enough empty bands and a sufficiently large energy
+!     range. Berry curvature and orbital angular momentum contain
+!     sums over intermediate states, so their convergence must be
+!     tested with respect to the upper band and energy limits.
 !
-!     (b) For SOC calculations, extend "Emax" in case.inso up to 5 Ry:
+!     In case.in1 or case.in1c, increase and convergence-test "de":
+!
+!         K-VECTORS FROM UNIT:4   -9.0      10.0    10   emin / de / nband
+!                                  ----------^
+!
+!     For calculations with SOC, ensure that Emax in case.inso covers
+!     all states required in the intermediate-state sums:
+!
 !         -10 5.0                Emin, Emax
-!         -----^
+!           ---^
 !
-!     (c) The default "Emax" in case.inop is 3 Ry (usually OK),
-!         but consider testing convergence and increasing up to 5 Ry:
+!     Ensure that the matrix-element range in case.inop is at least
+!     as large as the corresponding eigenvalue and SOC ranges:
+!
 !         -5.0 3.5 9999         Emin, Emax for matrix elements, NBvalMAX
-!         ------^
+!                ---^
 !
-! (3) For VASP calculations:
-!     - Set LOPTICS = .TRUE.
-!     - Increase NBANDS (at least x3)
-!     - Disable finite-difference derivatives: LPEAD = .FALSE.
+!     The numerical values above are examples, not universal
+!     convergence settings.
+!
+! (3) For VASP, generate WAVEDER using:
+!
+!         LOPTICS = .TRUE.
+!         LPEAD   = .FALSE.
+!
+!     LPEAD = .FALSE. is required because berrycpt uses the full
+!     interband derivative matrix stored in WAVEDER.
+!
+!     Include enough empty bands:
+!
+!         NBANDS = XXXX
+!
+!     Approximately three times the number of occupied bands can be
+!     used as an initial estimate, but NBANDS must be convergence-tested.
+!     WAVEDER and EIGENVAL must come from the same VASP calculation.
+!
+!     GW PAW potentials _MUST BE USED_ for VASP calculations because
+!     they are optimized for accurately representing unoccupied states
+!     far above the Fermi level and provide a more suitable PAW
+!     projector basis for the high-energy empty states entering the
+!     intermediate-state sums.
+!
+! Copyright (c) 2024-2026 Oleg Rubel
 
 !! Variables
 
-USE OMP_LIB
+USE write_progress_mod, ONLY: initialize_progress, write_progress
 USE precision_mod, ONLY: sp, dp
-USE read_mommat_nb_mod, ONLY: read_mommat_nb
-USE read_numlines_mod, ONLY: read_numlines
-USE read_numlines_vasp_mod, ONLY: read_numlines_vasp
-USE read_mommat_pij_mod, ONLY: read_mommat_pij
+USE command_line_args_mod, ONLY: command_line_args
+USE validate_input_files_mod, ONLY: validate_input_files
+USE read_waveder_header_mod, ONLY: read_waveder_header
+USE read_eigenvalues_wien2k_mod, ONLY: read_eigenvalues_wien2k
+USE read_eigenvalues_vasp_mod, ONLY: read_eigenvalues_vasp
+USE read_occupations_wien2k_mod, ONLY: read_occupations_wien2k
+USE construct_occupations_mod, ONLY: construct_occupations
+USE filename_contains_energyso_mod, ONLY: filename_contains_energyso
+USE find_degenerate_groups_mod, ONLY: find_degenerate_groups
+USE set_spin_suffix_mod, ONLY: set_spin_suffix
+USE open_mommat_files_mod, ONLY: open_mommat_files, close_mommat_files
 USE read_mommat_pij_vasp_mod, ONLY: read_mommat_pij_vasp
-USE finddegenblocks_mod, ONLY: finddegenblocks
-USE degenbc_mod, ONLY: degenbc
-USE degenoam_mod, ONLY: degenoam
-USE goamfn_mod, ONLY: goamfn
+USE open_output_files_mod, ONLY: &
+    open_output_files, close_output_files, write_output_summary, &
+    output_units_type
+USE read_mommat_pij_wien2k_kpoint_mod, ONLY: read_mommat_pij_wien2k_kpoint
+USE calculate_bcurv_kpoint_mod, ONLY: calculate_bcurv_kpoint
+USE write_bcurv_kpoint_mod, ONLY: write_bcurv_kpoint
+USE calculate_oam_kpoint_mod, ONLY: calculate_oam_kpoint
+USE write_oam_kpoint_mod, ONLY: write_oam_kpoint
+USE calculate_goam_kpoint_mod, ONLY: calculate_goam_kpoint
+USE write_goam_kpoint_mod, ONLY: write_goam_kpoint
+USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_nan
 
 IMPLICIT NONE
 
-!! Variables
+! Output-file units for the current spin channel
+TYPE(output_units_type) :: output_units
 
-CHARACTER(len=256) :: &
-    arg1, arg2, arg3, arg4, & ! command line input arguments
-    fnameinp, & ! input file with momentum or dipole matrix elements
-    fnameinpUP, fnameinpDN, & ! spin-resolved mom. matr. elements (WIEN2k only)
-    fnameout2,  & ! output file names
-    fnameout21, fnameout22, fnameout23, & ! ... spin UP, DN, UP-DN Berry curvature
-    fnameout3, fnameout31, fnameout32,  & ! output file names for OAM
-    wformat2, wformat32, & ! format for writing/reading data
-    charspin ! spin component for spin-polarized calculations
+! Input and derived file names
+CHARACTER(LEN=:), ALLOCATABLE :: &
+    fnameinp, &   ! primary matrix-element file
+    fnameinpUP, & ! spin-up matrix-element file (WIEN2k only)
+    fnameinpDN, & ! spin-down matrix-element file (WIEN2k only)
+    fnameene, &   ! eigenvalue file
+    fnameocc, &   ! occupation file used with --dftocc (WIEN2k only)
+    fnamebase     ! basename of the primary matrix-element file
+
+! Suffix appended to spin-dependent output file names
+CHARACTER(LEN=3) :: charspin
+
+! Global calculation dimensions
 INTEGER :: &
-    nltot, & ! total number of lines in mommat file
-    nltotUP, nltotDN, & ! total number of lines in mommat2[up/dn] files (WIEN2k)
-    nktot, & ! total number of k-points in WAVEDER file
-    nstot, & ! total number of spins in WAVEDER file
-    iline, & ! current line number during reading of mommat file
-    ilineUP, ilineDN, & ! ... for up/dn components (WIEN2k)
-    ispin, & ! current spin (1/2)
-    nb, & ! number of bands for a current k-point
-    nbUP, nbDN, & ! ... for up/dn components (WIEN2k unly)
-    nbb, & ! number of band-to-band transition 
-    nbcder, & ! the max number of bands for which the Berry curvature
-              ! is calculated
-              ! In WIEN2k we set it = to the total number of bands
-              ! In VASP it is set in WAVEDER file as NBANDS_CDER
-    ivb, i, j, ikpt, m, & ! counters
-    idg1, idg2, & ! indices of the first and last degenerate states in a block
-    n, & ! band indices
-    nvb, & ! number of occupied bands [1:nvb]
-    nvbinpt=0, &    ! input number of occupied bands [1:nvb]
-                    ! (init. 0 as a flag of the variable being set)
-    ivoigt, & ! Voigt index (1..6)
-    alpha, beta, & ! Cartesian directions 1,2,3 = x,y,z
-    ierr, & ! error code
-    ngroups, & ! number of groups of degenerate energies
-    ig, & ! group index
-    nmg ! number of bands as members in a degenerate group
+    nstot, &      ! total number of spin channels
+    nktot, &      ! total number of k-points
+    nb, &         ! maximum number of available bands
+    nbcder = 0    ! WAVEDER target-band limit; ignored for WIEN2k
+
+! Main-loop indices and current k-point dimensions
+INTEGER :: &
+    ispin, &      ! current spin-channel index
+    ikpt, &       ! current k-point index
+    i, &          ! target-band index used to construct pijSPIN
+    j, &          ! transition-band index used to construct pijSPIN
+    alpha, &      ! Cartesian component used to construct pijSPIN
+    nbki, &       ! number of available bands at the current k-point and spin
+    nbcderki      ! number of target bands at the current k-point and spin
+
+! File-name parsing
+INTEGER :: &
+    ipath         ! position of the final directory separator
+
+! Units of already-open WIEN2k matrix-element files
+INTEGER :: &
+    unitinp = -1, &
+    unitinpUP = -1, &
+    unitinpDN = -1
+
+! Band counts and degenerate-group metadata
 INTEGER, ALLOCATABLE :: &
-    nbocck(:,:), & ! k- and spin-resolved number of occupied bands
-    dg_group(:), & ! assignment of each band to a group of degenerate bands
-    members(:) ! list of bands that are members of a degenerate group
-REAL(kind=sp) :: &
-    efermi ! Fermi energy in [eV]
-REAL(kind=sp), ALLOCATABLE :: &
-    dEij(:,:), & ! energy differences E_i-E_j [Ha]
-    dEijdg(:,:), & ! energy differences E_i-E_j [Ha] for degenerate bands
-    dEijUP(:,:), dEijDN(:,:), & ! ... for up/dn components (WIEN2k)
-    dEijks(:,:,:,:) ! k- and spin-dependent energy differences E_i-E_j [Ha]
-REAL(kind=dp), ALLOCATABLE :: &
-    bcurv(:,:), & ! array to store Berry curvature
-    bcurvdg(:), & ! array to store Berry curvature of a block of degenerate bands
-    oam(:,:), & ! array to store orbital angular momentum (OAM)
-    oamdg(:) ! array to store OAM of a block of degenerate bands
-COMPLEX(kind=sp), ALLOCATABLE :: &
-    pij(:,:,:), & ! momentum matrix elements [at.u.]
-    pijA(:,:), pijB(:,:), & ! subset of momentum matrix elements [at.u.] for degenerate bands
-    pijUP(:,:,:), pijDN(:,:,:), & ! ... for up/dn components (WIEN2k)
-    pijks(:,:,:,:,:) ! k- and spin-dependent momentum matrix elements [at.u.]
-COMPLEX(kind=dp), ALLOCATABLE :: &
-    goam(:,:,:), & ! generalized OAM(i,j)
-    goamdg(:,:) ! array to store generalized OAM(i,j) of a block of degenerate bands
+    nbk(:,:), &         ! available bands at each k-point and spin
+    dg_groupk(:,:,:), & ! degenerate-group label of every available band
+    ngroupsk(:,:), &    ! number of degenerate groups at each k-point and spin
+    nbcderk(:,:)         ! target-band limit after degeneracy adjustment
+
+! Fermi-level and occupation metadata
+REAL(KIND=sp) :: &
+    efermi, &          ! Fermi energy [Ha]
+    full_occupation    ! occupation assigned to a fully occupied band
+
+! Eigenvalues, occupations, and k-point weights
+REAL(KIND=sp), ALLOCATABLE :: &
+    ene(:,:,:), &      ! eigenvalues (band, k-point, spin) [Ha]
+    occup(:,:,:), &    ! occupations (band, k-point, spin)
+    wk(:)              ! relative WIEN2k k-point weights
+
+! Degeneracy and occupation thresholds
+REAL(KIND=sp), PARAMETER :: &
+    energy_tolerance = 1.0E-5_sp, &    ! adjacent-band tolerance [Ha]
+    occupation_tolerance = 1.0E-5_sp   ! threshold for nonzero occupation
+
+! Energy differences at the current k-point
+REAL(KIND=sp), ALLOCATABLE :: &
+    dEij(:,:)          ! E_transition-E_target (target, transition) [Ha]
+
+! Complete VASP energy-difference data
+REAL(KIND=sp), ALLOCATABLE :: &
+    dEijks(:,:,:,:)    ! E_j-E_i (target, transition, k-point, spin) [Ha]
+
+! Matrix elements at the current k-point
+COMPLEX(KIND=sp), ALLOCATABLE :: &
+    pij(:,:,:), &      ! total matrix elements (component, target, transition) [a.u.]
+    pijUP(:,:,:), &    ! spin-up-projected matrix elements (WIEN2k only) [a.u.]
+    pijDN(:,:,:), &    ! spin-down-projected matrix elements (WIEN2k only) [a.u.]
+    pijSPIN(:,:,:)     ! pijUP-pijDN used for spin Berry curvature [a.u.]
+
+! Complete VASP matrix-element data
+COMPLEX(KIND=sp), ALLOCATABLE :: &
+    pijks(:,:,:,:,:)   ! (component, target, transition, k-point, spin) [a.u.]
+
+! Band-resolved Berry curvature and orbital angular momentum
+REAL(KIND=dp), ALLOCATABLE :: &
+    bcurv(:,:), &      ! Omega_yz, Omega_zx, Omega_xy by target band [bohr^2]
+    oam(:,:)           ! L_yz, L_zx, L_xy by target band [hbar]
+
+! Generalized orbital-angular-momentum matrices
+COMPLEX(KIND=dp), ALLOCATABLE :: &
+    goam(:,:,:)        ! (bra band, ket band, yz/zx/xy) [hbar]
+
+! Calculation mode
 LOGICAL :: &
-    fmommatend, & ! end of mommat file
-    file_exists, &
-    wien2k, & ! true if this is a WIEN2k calculation
-    spinor ! the wave function is a spinor
+    wien2k, &            ! true for WIEN2k input and false for VASP input
+    soc_sp_resolv_pij, & ! separate WIEN2k spin-up/down matrices are supplied
+    dftocc, &             ! use occupations read from the DFT calculation
+    soc                   ! WIEN2k calculation includes spin-orbit coupling
 
 !! Get command line input arguments
 
-DO i = 1, iargc() ! loop through all command line arguments to search for help
-    CALL GETARG(i,arg1)
-    IF ( TRIM(arg1)=='-h' .or.  TRIM(arg1)=='--h' .or. & !...
-            TRIM(arg1)=='-help' .or. TRIM(arg1)=='--help') THEN
-        GOTO 911 ! print help and STOP
-    END IF
-END DO
-WRITE(*,'(A,I0)') ' Detected input arguments = ', iargc()
-IF ((iargc() < 3) .OR. (iargc() > 4)) THEN ! check number of input arguments
-    WRITE(*,'(A)') ' Expected 3 or 4 input arguments'
-    GOTO 912 ! print error and STOP
-END IF
-! 1st argument
-CALL GETARG(1,arg1) ! mommat file name
-WRITE (*,*) 'Input mommat file = ' // TRIM(arg1)
-fnameinp = TRIM(arg1)
-! 2nd argument
-CALL GETARG(2,arg2) ! switch for the number of valence bands [-nvb]
-IF (TRIM(arg2)=='-nvb') THEN
-    ! 3rd argument can be the number of occupied bands
-    CALL GETARG(3,arg3)
-    read(arg3,*,IOSTAT=ierr) nvbinpt
-    IF (ierr /= 0) THEN ! input error for 3rd argument
-        WRITE(*,*) '3rd argument is "' // TRIM(arg3) // '"'
-        WRITE(*,*) 'Error detected for the 3rd input argument (must be a number of occupied bands)'
-        GOTO 912 ! print error and STOP
-    END IF
-    WRITE (*,'(A,I0)') & !...
-        ' Number of occupied bands = ', nvbinpt
-ELSE IF (TRIM(arg2)=='-efermiev') THEN
-    ! 3rd argument can be the Fermi energy, which will be used to determine
-    ! spin and k-specific number of occupied bands
-    CALL GETARG(3,arg3)
-    read(arg3,*,IOSTAT=ierr) efermi
-    IF (ierr /= 0) THEN ! input error for 3rd argument
-        WRITE(*,*) '3rd argument is "' // TRIM(arg3) // '"'
-        WRITE(*,*) 'Error detected for the 3rd input argument (must be a Fermi energy)'
-        GOTO 912 ! print error and STOP
-    END IF
-    WRITE (*,'(A,F10.6)') & !...
-        ' Fermi energy (eV) = ', efermi
-ELSE ! impossible
-    WRITE (*,*) 'The second argument is "' // TRIM(arg2) // &
-        '", while expected "-nvb" or "-efermiev"'
-    GOTO 912 ! print error and STOP
-END IF
-! 4th argument
-spinor = .false. ! default is _not_ a spinor wave function (matters for WIEN2k only)
-IF ( iargc()==4 ) THEN
-    CALL GETARG(4,arg4) ! switch for the spinor wave function [-so]
-    IF ( TRIM(arg4)=='-so' ) THEN
-        spinor = .true.
-        WRITE(*,*) 'The wave function is a spinor'
-    ELSE ! impossible
-        WRITE (*,*) 'The 4th argument is "' // TRIM(arg4) // &
-            '", while expected "-so"'
-        GOTO 912 ! print error and STOP
-    END IF
-END IF
+CALL command_line_args( &
+    fnameinp, fnameinpUP, fnameinpDN, fnameene, fnameocc, dftocc, efermi) ! out
+WRITE(*,'(A)') ' Command line arguments were initialized successfully.'
+
+! Three matrix-element files indicate spin-resolved WIEN2k SOC input
+soc_sp_resolv_pij = LEN_TRIM(fnameinpUP) > 0 .AND. LEN_TRIM(fnameinpDN) > 0
+! Distinguish from SOC calculation without spin-resolved matrix elements
+soc = soc_sp_resolv_pij .OR. filename_contains_energyso(fnameene)
 
 !! WIEN2k or VASP?
 
-IF ( TRIM(fnameinp) == 'WAVEDER' .OR. TRIM(fnameinp) == 'WAVEDERF' ) THEN ! VASP
-    wien2k = .false.
-    WRITE (*,*) 'Assume VASP calculation'
-    ! change to a binary file in case it is pointed at the formatted 
-    ! file WAVEDER
-    fnameinp = 'WAVEDER'
+! Extract the file name without the directory path
+ipath = SCAN(TRIM(fnameinp), '/', BACK=.TRUE.)
+IF (ipath > 0) THEN
+    fnamebase = fnameinp(ipath+1:LEN_TRIM(fnameinp))
+ELSE
+    fnamebase = TRIM(fnameinp)
+END IF
+IF (fnamebase == 'WAVEDER' .OR. fnamebase == 'WAVEDERF') THEN ! VASP
+    wien2k = .FALSE.
+    IF (soc_sp_resolv_pij) THEN
+        WRITE(*,*) 'Three matrix-element files can be used only with WIEN2k.'
+        WRITE(*,*) 'Check execution options with "berrycpt -h"'
+        ERROR STOP
+    END IF
+    ! Change to the binary file while preserving its directory path
+    IF (fnamebase == 'WAVEDERF') THEN
+        IF (ipath > 0) THEN
+            fnameinp = fnameinp(:ipath)//'WAVEDER'
+        ELSE
+            fnameinp = 'WAVEDER'
+        END IF
+    END IF
     WRITE(*,*) 'Assumed VASP calculation based on the input file name.'
-ELSE ! WIEN2k (default)
-    wien2k = .true.
+ELSE ! WIEN2k
+    wien2k = .TRUE.
     WRITE(*,*) 'Assumed WIEN2k calculation based on the input file name.'
-    WRITE(*,*) '(If you would like to read VASP file, the input file should'
-    WRITE(*,*) 'have the exact name WAVEDER.)'
-    IF ( spinor ) THEN
-        ! take last two letters of the input file name
-        charspin = fnameinp( LEN(TRIM(fnameinp))-1 : LEN(TRIM(fnameinp)) )
-        IF ( (charspin=='up') .OR. (charspin=='dn')) THEN
-            WRITE(*,'(A)') ' The input file name ends with ' // TRIM(charspin)
-            WRITE(*,*) 'and the spinor option is selected. This is inconsistent.'
-            WRITE(*,*) 'Instead you should point to the momentum matrix elements'
-            WRITE(*,*) 'file with spin up+dn, which is case.mommat2'
-            WRITE(*,*) 'Check execution options with "berrycpt -h"'
-            ERROR STOP
-        END IF
-        fnameinpUP = TRIM(fnameinp)//'up'
-        fnameinpDN = TRIM(fnameinp)//'dn'
-        WRITE(*,*) 'It will be assumed that WIEN2k spin-resolved momentum matrix'
-        WRITE(*,'(A)') ' elements are stored in the files: ' // &
-                TRIM(fnameinpUP) // ' and ' // TRIM(fnameinpDN)
+    WRITE(*,*) '(If you would like to read a VASP file, its file name should'
+    WRITE(*,*) 'be WAVEDER or WAVEDERF.)'
+    IF (soc_sp_resolv_pij) THEN
+        WRITE(*,*) 'WIEN2k spin-resolved momentum matrix elements will be read'
+        WRITE(*,'(A)') ' from the files: '//TRIM(fnameinpUP)//' and '// &
+            TRIM(fnameinpDN)
     END IF
 END IF
 
-!! Determine number of lines in mommat file & read VASP WAVEDER header
+!! Validate input files
 
-! check if the file exists
-INQUIRE(FILE=fnameinp, EXIST=file_exists)
-IF ( file_exists ) THEN
-    WRITE(*,*) 'The input file ' // TRIM(fnameinp) // ' was found.'
-ELSE IF ( .not.(file_exists) ) THEN
-    WRITE(*,*) 'The input file ' // TRIM(fnameinp) // ' does not exist. Exiting'
-    ERROR STOP
-END IF
-IF ( wien2k .AND. spinor ) THEN ! check spin-resolved momentum matrix elements
-    INQUIRE(FILE=fnameinpUP, EXIST=file_exists)
-    IF ( file_exists ) THEN
-        WRITE(*,*) 'The input file ' // TRIM(fnameinpUP) // ' was found.'
-    ELSE IF ( .not.(file_exists) ) THEN
-        WRITE(*,*) 'The input file ' // TRIM(fnameinpUP) // ' does not exist. Exiting'
-        ERROR STOP
-    END IF
-    INQUIRE(FILE=fnameinpDN, EXIST=file_exists)
-    IF ( file_exists ) THEN
-        WRITE(*,*) 'The input file ' // TRIM(fnameinpDN) // ' was found.'
-    ELSE IF ( .not.(file_exists) ) THEN
-        WRITE(*,*) 'The input file ' // TRIM(fnameinpDN) // ' does not exist. Exiting'
-        ERROR STOP
-    END IF
-END IF
-IF ( file_exists .AND. (.not.(wien2k)) ) THEN ! check EIGENVAL for VASP
-    INQUIRE(FILE='EIGENVAL', EXIST=file_exists)
-    IF ( .not.(file_exists) ) THEN
-        WRITE(*,*) 'The file EIGENVAL is also required, but it ', &
-            'does not exist. Exiting'
-        ERROR STOP
-    ELSE
-        WRITE(*,*) 'The file EIGENVAL is also required. ', &
-            'It is found.'
-    END IF
+CALL validate_input_files( &
+    fnameinp, fnameinpUP, fnameinpDN, fnameene, fnameocc, & ! in
+    wien2k, soc_sp_resolv_pij, dftocc)                                 ! in
+
+!! Read input metadata
+
+IF (.NOT. wien2k) THEN
+    CALL read_waveder_header( &
+        fnameinp, &                  ! in
+        nstot, nktot, nbcder, nb)    ! out, scalar WAVEDER dimensions
 END IF
 
-!! Get the length of input files
+!! Read eigenvalues from WIEN2k or VASP. Return them in [Ha]
 
-IF ( wien2k ) THEN
-    CALL read_numlines(fnameinp, 1, & ! <- args in 
-            nltot) ! -> args out
-    WRITE (*,'(A,I0)') '  number of lines in mommat file = ', nltot
-    IF (nltot < 10) THEN
-        WRITE(*,*) 'The file ' // TRIM(fnameinp) // ' is too short ' // & !...
-            'and most likely useless. Stopping'
-        ERROR STOP
-    END IF
-    nstot = 1 
-    IF ( spinor ) THEN
-        ! get the length of spin-resolved momentum matr. el. files
-        CALL read_numlines(fnameinpUP, 1, & ! <- args in 
-                nltotUP) ! -> args out
-        CALL read_numlines(fnameinpDN, 1, & ! <- args in 
-                nltotDN) ! -> args out
-        IF ( (nltot.NE.nltotUP) .OR. (nltotUP.NE.nltotDN) ) THEN
-            WRITE(*,*) 'Error: inconsistency in the length of input files' 
-            WRITE(*,'(3A,I0)') '  the length of ', &
-                    TRIM(fnameinp), ' = ', nltot
-            WRITE(*,'(3A,I0)') '  the length of ', &
-                    TRIM(fnameinpUP), ' = ', nltotUP
-            WRITE(*,'(3A,I0)') '  the length of ', &
-                    TRIM(fnameinpDN), ' = ', nltotDN
-            WRITE(*,*) 'Stopping' 
-            ERROR STOP
-        END IF
-    END IF
-ELSE ! VASP
-    CALL read_numlines_vasp(fnameinp, 1, & ! <- args in 
-        nstot, nktot, nbcder, nb) ! -> args out
-    WRITE (*,'(A,I0)') '  number of spins in WAVEDER file = ', nstot
-    WRITE (*,'(A,I0)') '  number of k-points in WAVEDER file = ', nktot
-    WRITE (*,'(A,I0)') '  smaller number of bands in WAVEDER file = ', nbcder
-    WRITE (*,'(A,I0)') '  number of bands per k-point in EIGENVAL file = ', &
-        nb
-    ! Memory estimate: 
-    ! 4 bytes * 2 (complex) * 3 (3D x,y,z) * 10e9 (Bytes -> GB)
-    WRITE (*,'(A,1X,F5.1,1X,A)') ' Memory required to store matrix elements'//&
-        ' from WAVEDER file', nstot*nktot*(nb**2.)*4*2*3/10.0**9., 'GB'
-    WRITE (*,'(A,1X,F5.1,1X,A)') ' Memory required to store dE_ij'//&
-        ' from EIGENVAL file', nstot*nktot*(nb**2.)*4*1/10.0**9., 'GB'
-    WRITE (*,'(A,1X,F5.1,1X,A)') ' It will take additional', &
-        1*1*(nb**2.)*4*(2*3+1)/10.0**9., 'GB overhead'//&
-        ' to run the calculation'
-    WRITE (*,'(A,1X,F5.1,1X,A)') ' Overall, you will need at least', &
-        nstot*nktot*(nb**2.)*4*2*3/10.0**9. + &
-        nstot*nktot*(nb**2.)*4*1/10.0**9. + &
-        1*1*(nb**2.)*4*(2*3+1)/10.0**9., 'GB (+ 20% incidental) of RAM'//&
-        ' to run the calculation'
-END IF
-! open input mommat/WAVEDER file(s) for reading (file ID = 1, [11, 12])
-IF ( wien2k ) THEN
-    OPEN (1, file = TRIM(fnameinp), status = 'old', iostat=ierr) ! case.mommat2
-    IF (ierr /= 0) THEN
-        WRITE(*,*) 'Error opening output file ', TRIM(fnameinp)
-        ERROR STOP
-    END IF
-    IF ( spinor ) THEN
-        OPEN (11, file = TRIM(fnameinpUP), status = 'old', &
-            iostat=ierr) ! case.mommat2up
-        IF (ierr /= 0) THEN
-            WRITE(*,*) 'Error opening output file ', TRIM(fnameinpUP)
-            ERROR STOP
-        END IF
-        OPEN (12, file = TRIM(fnameinpDN), status = 'old', &
-            iostat=ierr) ! case.mommat2dn
-        IF (ierr /= 0) THEN
-            WRITE(*,*) 'Error opening output file ', TRIM(fnameinpDN)
-            ERROR STOP
-        END IF
-    END IF
-ELSE ! VASP
-    OPEN (1, file = TRIM(fnameinp), form = 'unformatted', &
-        status = 'old', iostat=ierr)
-    IF (ierr /= 0) THEN
-        WRITE(*,*) 'Error opening output file ', TRIM(fnameinp)
-        ERROR STOP
-    END IF
+IF (wien2k) THEN
+    CALL read_eigenvalues_wien2k( &
+        fnameene, &                  ! in
+        nktot, nb, &                 ! out, scalar dimensions
+        nbk, &                       ! out, allocated as nbk(nktot,1)
+        ene, &                       ! out, allocated as ene(nb,nktot,1)
+        wk)                          ! out, allocated as wk(nktot)
+
+    nstot = 1
+ELSE
+    CALL read_eigenvalues_vasp( &
+        fnameene, &                  ! in
+        nstot, nktot, nb, &          ! in, dimensions read from WAVEDER
+        nbk, &                       ! out, allocated as nbk(nktot,nstot)
+        ene, &                       ! out, allocated as ene(nb,nktot,nstot)
+        occup)                       ! out, allocated as occup(nb,nktot,nstot)
 END IF
 
-!! Read VASP WAVEDER and EIGENVAL files to determine matrix elements
+!! Read WIEN2k band occupations from `case.weight` only if requested
+!! Should be generated by:
+!!   x lapw2 [-so]
 
-IF ( .NOT.(wien2k) ) THEN
-    CALL read_mommat_pij_vasp (1, nstot, nktot, nbcder, nb, efermi, & ! <- args in
-        pijks, dEijks, nbocck) ! -> args out (allocated inside)
-    ! check returned arrays
-    IF (.NOT. ALLOCATED(pijks)) ERROR STOP 'Array pijks is not allocated.'
-    IF (ANY(SHAPE(pijks) /= [3,nb,nb,nktot,nstot])) THEN
-        WRITE (*,*) 'Array "pijks" has shape', SHAPE(pijks)
-        WRITE (*,*) 'while expected', [3,nb,nb,nktot,nstot]
-        ERROR STOP "Shape mismatch in array pijks"
-    END IF
-    IF (.NOT. ALLOCATED(dEijks)) ERROR STOP 'Array dEijks is not allocated.'
-    IF (ANY(SHAPE(dEijks) /= [nb,nb,nktot,nstot])) THEN
-        WRITE (*,*) 'Array "dEijks" has shape', SHAPE(dEijks)
-        WRITE (*,*) 'while expected', [nb,nb,nktot,nstot]
-        ERROR STOP "Shape mismatch in array dEijks"
-    END IF
-    IF (.NOT. ALLOCATED(nbocck)) ERROR STOP 'Array nbocck is not allocated.'
-    IF (ANY(SHAPE(nbocck) /= [nktot,nstot])) THEN
-        WRITE (*,*) 'Array "nbocck" has shape', SHAPE(nbocck)
-        WRITE (*,*) 'while expected', [nktot,nstot]
-        ERROR STOP "Shape mismatch in array nbocck"
-    END IF
+IF (wien2k .AND. dftocc) THEN
+    CALL read_occupations_wien2k( &
+        fnameocc, nktot, nb, &       ! in
+        nbk, ene, wk, soc, &         ! in
+        occup)                       ! out, allocated as occup(nb,nktot,1)
 END IF
 
-! Loop over spins (for VASP only)
-! In WIEN2k nstot=1 since case.momat2up and case.momat2dn files should be
-! read one after the other any ways
-WRITE(*,*) 'Entering the main loop...'
+!! Construct occupation if Fermi energy is provided
+
+IF ( .NOT. dftocc ) THEN
+    IF (IEEE_IS_NAN(efermi)) THEN
+        WRITE(*,'(/,A)') ' ERROR: Fermi energy was not initialized'
+        ERROR STOP 1
+    END IF
+    CALL construct_occupations( &
+        wien2k, soc, fnameinp, fnameene, &    ! in
+        nstot, nktot, nb, nbk, ene, efermi, & ! in
+        occup, &                              ! in/out, allocated or resized for
+                                              ! WIEN2k as occup(nb,nktot,nstot);
+                                              ! existing VASP array is overwritten
+        full_occupation)                      ! out, full-band occupation
+END IF
+
+!! Find groups of degenerate bands
+
+CALL find_degenerate_groups( &
+    wien2k, nstot, nktot, nb, nbcder, nbk, ene, occup, & ! in
+    energy_tolerance, occupation_tolerance, &            ! in
+    dg_groupk, &  ! out, allocated as dg_groupk(nb,nktot,nstot)
+                  !      = degenerate-group label (band,k-point,spin)
+    ngroupsk, &   ! out, allocated as ngroupsk(nktot,nstot)
+                  !      = number of groups at each k-point and spin
+    nbcderk)      ! out, allocated as nbcderk(nktot,nstot)
+                  !      = target-band limit after degeneracy adjustment
+
+!! Read the complete VASP WAVEDER record once
+
+IF (.NOT. wien2k) THEN
+    CALL read_mommat_pij_vasp( &
+        fnameinp, nstot, nktot, nbcder, nb, ene, & ! in
+        pijks, &  ! out, allocated as
+                ! pijks(3,nbcder,nb,nktot,nstot)
+                ! = (Cartesian component, target band, transition band,
+                !    k-point, spin)
+        dEijks) ! out, allocated as
+                ! dEijks(nbcder,nb,nktot,nstot)
+                ! = E_transition-E_target [Ha]
+END IF
+
+!! Open WIEN2k matrix-element files
+
+IF (wien2k) THEN
+    CALL open_mommat_files( &
+        fnameinp, fnameinpUP, fnameinpDN, & ! in
+        soc_sp_resolv_pij, &                ! in
+        unitinp, &                          ! out, connected unit for the total file
+        unitinpUP, &                        ! out, connected spin-up unit or -1
+        unitinpDN)                          ! out, connected spin-down unit or -1
+END IF
+
+!! Main processing loops
+
+WRITE(*,'(A)') ' Entering the main spin and k-point loops.'
+CALL initialize_progress( &
+    nstot, nktot) ! in
+
 DO ispin = 1, nstot
 
-    !! Spin suffix
-    
-    IF ( wien2k ) THEN
-        ! take last two letters of the input file name
-        charspin = fnameinp( LEN(TRIM(fnameinp))-1 : LEN(TRIM(fnameinp)) )
-        IF ( TRIM(charspin) == 'up' ) THEN
-            charspin = '-up'
-        ELSE IF ( TRIM(charspin) == 'dn' ) THEN
-            charspin = '-dn'
-        ELSE
-            charspin = '' ! no spin identity
-        END IF
-    ELSE ! VASP
-        IF (ispin==1 .AND. nstot==2) THEN
-            charspin = '-up'
-        ELSE IF (ispin==2 .AND. nstot==2) THEN
-            charspin = '-dn'
-        ELSE
-            charspin = '' ! no spin identity
-        END IF
-    END IF
+    CALL set_spin_suffix( &
+        wien2k, nstot, ispin, fnameinp, & ! in
+        charspin)                         ! out
 
-    !! Prepare output files
+    CALL open_output_files( &
+        wien2k, soc_sp_resolv_pij, charspin, & ! in
+        output_units)           ! out, scalar derived type;
+                                ! inactive unit fields remain -1
 
-    fnameout2 = 'bcurv_ij'//TRIM(charspin)//'.dat'
-    OPEN (2, file = TRIM(fnameout2), status = 'UNKNOWN') ! output file 1
-    WRITE(2,'(A)') '# This file is generated by berrycpt'
-    WRITE(2,'(A)') '# the output contains components of the Berry curvature tensor Omega_ij'
-    WRITE(2,'(A)') '# that are grouped by k-point index and then by the band index.'
-    WRITE(2,'(A)') '# The last entry for each k-point with the band index "0" is the'
-    WRITE(2,'(A)') '# total Berry curvature of all occupied bands.'
-    WRITE(2,'(A)') '# Columns correspond to values of Omega_ij'
-    WRITE(2,'(A)') '# band  4=yz;      5=zx;      6=xy'
-    IF ( wien2k .AND. spinor ) THEN
-        fnameout21 = 'bcurv_ij-up.dat'
-        OPEN (21, file = TRIM(fnameout21), status = 'UNKNOWN') ! output file 1.1 (optional)
-        WRITE(21,'(A)') '# This file is generated by berrycpt'
-        WRITE(21,'(A)') '# the output contains components of the spin UP Berry curvature tensor Omega_ij'
-        WRITE(21,'(A)') '# that are grouped by k-point index and then by the band index.'
-        WRITE(21,'(A)') '# The last entry for each k-point with the band index "0" is the'
-        WRITE(21,'(A)') '# total Berry curvature of all occupied bands.'
-        WRITE(21,'(A)') '# Columns correspond to values of Omega_ij'
-        WRITE(21,'(A)') '# band  4=yz;     5=zx;      6=xy'
-        fnameout22 = 'bcurv_ij-dn.dat'
-        OPEN (22, file = TRIM(fnameout22), status = 'UNKNOWN') ! output file 1.2 (optional)
-        WRITE(22,'(A)') '# This file is generated by berrycpt'
-        WRITE(22,'(A)') '# the output contains components of the spin DN Berry curvature tensor Omega_ij'
-        WRITE(22,'(A)') '# that are grouped by k-point index and then by the band index.'
-        WRITE(22,'(A)') '# The last entry for each k-point with the band index "0" is the'
-        WRITE(22,'(A)') '# total Berry curvature of all occupied bands.'
-        WRITE(22,'(A)') '# Columns correspond to values of Omega_ij'
-        WRITE(22,'(A)') '# band  4=yz;      5=zx;      6=xy'
-        fnameout23 = 'bcurv_ij-up-dn.dat'
-        OPEN (23, file = TRIM(fnameout23), status = 'UNKNOWN') ! output file 1.3 (optional)
-        WRITE(23,'(A)') '# This file is generated by berrycpt'
-        WRITE(23,'(A)') '# the output contains components of the spin UP-DN Berry curvature tensor Omega_ij'
-        WRITE(23,'(A)') '# that are grouped by k-point index and then by the band index.'
-        WRITE(23,'(A)') '# The last entry for each k-point with the band index "0" is the'
-        WRITE(23,'(A)') '# total Berry curvature of all occupied bands.'
-        WRITE(23,'(A)') '# Columns correspond to values of Omega_ij'
-        WRITE(23,'(A)') '# band  4=yz;      5=zx;      6=xy'
-    END IF
+    DO ikpt = 1, nktot
 
-    fnameout3 = 'oam_ij'//TRIM(charspin)//'.dat'
-    OPEN (3, file = TRIM(fnameout3), status = 'UNKNOWN') ! output file 2
-    WRITE(3,'(A)') '# This file is generated by berrycpt'
-    WRITE(3,'(A)') '# the output contains components of the orbital angular momentum tensor L_ij'
-    WRITE(3,'(A)') '# that are grouped by k-point index and then by the band index.'
-    WRITE(3,'(A)') '# Columns correspond to values of L_ij'
-    WRITE(3,'(A)') '# band  4=yz;      5=zx;      6=xy'
-    IF ( wien2k .AND. spinor ) THEN
-        fnameout31 = 'oam_ij-sigma_z-up.dat'
-        OPEN (31, file = TRIM(fnameout31), status = 'UNKNOWN') ! output file 2.1 (optional)
-        WRITE(31,'(A)') '# This file is generated by berrycpt'
-        WRITE(31,'(A)') '# the output contains components of the spin-projected'
-        WRITE(31,'(A)') '# orbital angular momentum tensor expressed as'
-        WRITE(31,'(A)') '# L^{sigma_z, up}_{ij,n} = <u|L_{ij}*1/2*(I+sigma_z)|u>'
-        WRITE(31,'(A)') '# that are grouped by k-point index and then by the band index.'
-        WRITE(31,'(A)') '# Columns correspond to values of L^{sigma_z, up}_{ij,n}'
-        WRITE(31,'(A)') '# band  4=yz;     5=zx;      6=xy'
-    END IF
-    fnameout32 = 'goam_ij_nm.dat'
-    OPEN (32, file = TRIM(fnameout32), status = 'UNKNOWN') ! output file 2.2 (optional)
-    WRITE(32,'(A)') '# This file is generated by berrycpt.'
-    WRITE(32,'(A)') '# The output contains components of a generalized'
-    WRITE(32,'(A)') '# orbital angular momentum tensor defined as'
-    WRITE(32,'(A)') '#   L_{ij,nm} = <u_m| L_{ij} |u_n>.'
-    WRITE(32,'(A)') '# Values are complex numbers printed as (Re, Im).'
-    WRITE(32,'(A)') '# Data are grouped by k-point index and, within each k-point, by Voigt index.'
-    WRITE(32,'(A)') '# The Voigt indices correspond to: 4 = yz, 5 = xz, 6 = xy.'
-    WRITE(32,'(A)') '# The nested loops below describe the exact output structure:'
-    WRITE(32,'(A)') '#'
-    WRITE(32,'(A)') '# DO ikpt = 1, nkpt'
-    WRITE(32,'(A)') '#     WRITE   # K-point: <ikpt>   NVB: <nvb>   NEMAX: <nemax>'
-    WRITE(32,'(A)') '#     DO ivoigt = 4, 6'
-    WRITE(32,'(A)') '#         WRITE   # Voigt index: <ivoigt>'
-    WRITE(32,'(A)') '#         DO n = 1, nvb'
-    WRITE(32,'(A)') '#             WRITE (L_{ivoigt,nm}, m = 1, nvb)   # one row of L_{ij,nm}'
-    WRITE(32,'(A)') '#         END DO ! n'
-    WRITE(32,'(A)') '#     END DO ! ivoigt'
-    WRITE(32,'(A)') '# END DO ! ikpt'
-    WRITE(32,'(A)') '#'
-    WRITE(32,'(A)') '# Note: NVB is the index range used for reporting L_{ij,nm}.'
-    WRITE(32,'(A)') '# Set it to include the bands of interest, often spanning states'
-    WRITE(32,'(A)') '# below and above the Fermi energy. It may differ from'
-    WRITE(32,'(A)') '# the number of occupied bands.'    
-    
+        nbki = nbk(ikpt,ispin)
+        nbcderki = nbcderk(ikpt,ispin)
 
-    !! Main part nested loops
-    
-    fmommatend = .false. ! end of mommat file is not reached
-    ikpt = 0 ! initialize the counter for k-points
-    nbb = 0 ! initialize the number of band-to-band transitions
-    iline = 0 ! initialize the number of lines to skip
-
-    DO WHILE (.not.(fmommatend)) ! loop over k-points until the file ends
-        ikpt = ikpt + 1 ! count number of k-points
-
-        !! Determine number of bands in mommat file
-
-        IF (wien2k) THEN ! do for WIEN2k only (nb was read above in case of VASP)
-            CALL read_mommat_nb(1, & ! <- args in
-                    iline, & ! <-> args in-out
-                    nb) ! -> args out
-            ! the max number of bands for which the Berry curvature is calculated
-            ! here (WIEN2k) we set it = to the total number of bands
-            nbcder = nb
-            IF ( spinor ) THEN
-                ! same for case.mommat2[up/dn]
-                CALL read_mommat_nb(11, & ! <- args in
-                        ilineUP, & ! <-> args in-out
-                        nbUP) ! -> args out
-                CALL read_mommat_nb(12, & ! <- args in
-                        ilineDN, & ! <-> args in-out
-                        nbDN) ! -> args out
-                IF ( (nb.NE.nbUP) .OR. (nb.NE.nbDN) .OR. &
-                        (nbUP.NE.nbDN) ) THEN
-                    WRITE(*,'(A,I0)') ' K-point ', ikpt
-                    WRITE(*,'(A,I0,A)') '  file ' // TRIM(fnameinp) // ' has ', &
-                            nb, ' bands'
-                    WRITE(*,'(A,I0,A)') '  file ' // TRIM(fnameinpUP) // ' has ',&
-                            nbUP, ' bands'
-                    WRITE(*,'(A,I0,A)') '  file ' // TRIM(fnameinpDN) // ' has ', &
-                            nbDN, ' bands'
-                    ERROR STOP 'Error: inconsistency in the number of bands for this k-point' 
-                END IF
-            END IF
-        END IF
-
-        !! Read <b_i|p_a|b_j> from mommat file, a=1,2,3 (x,y,z)
-
-        IF ( wien2k ) THEN
-            nbb = (nb+nb**2)/2 ! number of band-to-band transitions
-            ! spin up+dn momentum matrix elements
-            CALL read_mommat_pij (1, nb, nbb, & ! <- args in
-                iline, & ! <-> args in-out
-                pij, dEij) ! -> args out (allocated inside)
-            ! check returned arrays
-            IF (.NOT. ALLOCATED(pij)) ERROR STOP 'Array pij is not allocated.'
-            IF (ANY(SHAPE(pij) /= [3,nb,nb])) THEN
-                WRITE (*,*) 'Array "pij" has shape', SHAPE(pij)
-                WRITE (*,*) 'while expected', [3,nb,nb]
-                ERROR STOP "Shape mismatch in array pij"
-            END IF
-            IF (.NOT. ALLOCATED(dEij)) ERROR STOP 'Array dEij is not allocated.'
-            IF (ANY(SHAPE(dEij) /= [nb,nb])) THEN
-                WRITE (*,*) 'Array "dEij" has shape', SHAPE(dEij)
-                WRITE (*,*) 'while expected', [nb,nb]
-                ERROR STOP "Shape mismatch in array dEij"
-            END IF
-            IF ( spinor ) THEN
-                ! spin UP momentum matrix elements
-                CALL read_mommat_pij (11, nbUP, nbb, & ! <- args in
-                    ilineUP, & ! <-> args in-out
-                    pijUP, dEijUP) ! -> args out (allocated inside)
-                ! check returned arrays
-                IF (.NOT. ALLOCATED(pijUP)) ERROR STOP 'Array pijUP is not allocated.'
-                IF (ANY(SHAPE(pijUP) /= [3,nbUP,nbUP])) THEN
-                    WRITE (*,*) 'Array "pijUP" has shape', SHAPE(pijUP)
-                    WRITE (*,*) 'while expected', [3,nbUP,nbUP]
-                    ERROR STOP "Shape mismatch in array pijUP"
-                END IF
-                IF (.NOT. ALLOCATED(dEijUP)) ERROR STOP 'Array dEijUP is not allocated.'
-                IF (ANY(SHAPE(dEijUP) /= [nbUP,nbUP])) THEN
-                    WRITE (*,*) 'Array "dEijUP" has shape', SHAPE(dEijUP)
-                    WRITE (*,*) 'while expected', [nbUP,nbUP]
-                    ERROR STOP "Shape mismatch in array dEijUP"
-                END IF
-                ! spin DN momentum matrix elements
-                CALL read_mommat_pij (12, nbDN, nbb, & ! <- args in
-                    ilineDN, & ! <-> args in-out
-                    pijDN, dEijDN) ! -> args out (allocated inside)
-                ! check returned arrays
-                IF (.NOT. ALLOCATED(pijDN)) ERROR STOP 'Array pijDN is not allocated.'
-                IF (ANY(SHAPE(pijDN) /= [3,nbDN,nbDN])) THEN
-                    WRITE (*,*) 'Array "pijDN" has shape', SHAPE(pijDN)
-                    WRITE (*,*) 'while expected', [3,nbDN,nbDN]
-                    ERROR STOP "Shape mismatch in array pijDN"
-                END IF
-                IF (.NOT. ALLOCATED(dEijDN)) ERROR STOP 'Array dEijDN is not allocated.'
-                IF (ANY(SHAPE(dEijDN) /= [nbDN,nbDN])) THEN
-                    WRITE (*,*) 'Array "dEijDN" has shape', SHAPE(dEijDN)
-                    WRITE (*,*) 'while expected', [nbDN,nbDN]
-                    ERROR STOP "Shape mismatch in array dEijDN"
-                END IF
-            END IF
-        ELSE ! VASP
-            IF (.NOT. ALLOCATED(pij)) THEN
-                ALLOCATE(pij(3, nb, nb))
-            END IF
-            IF (.NOT. ALLOCATED(dEij)) THEN
-                ALLOCATE(dEij(nb, nb))
-            END IF
-            pij = pijks(:,:,:,ikpt,ispin)
-            dEij = dEijks(:,:,ikpt,ispin)
-        END IF
-
-        !! VASP k- and spin-specific number of occupied bands
+        !! Obtain rectangular matrices for the current k-point and spin
 
         IF (wien2k) THEN
-            nvb = nvbinpt ! use input value for the last occupied band
-        ELSE ! VASP
-            IF ( nvbinpt > 0 ) THEN
-                nvb = nvbinpt
-            ELSE
-                nvb = nbocck(ikpt,ispin)
-            END IF
+            ! Read one k-point from the already-open sequential files.
+            CALL read_mommat_pij_wien2k_kpoint( &
+                unitinp, unitinpUP, unitinpDN, &           ! in
+                soc_sp_resolv_pij, ikpt, nbki, nbcderki, & ! in
+                pij, &  ! out, allocated as pij(3,nbcderki,nbki)
+                        !      = (Cartesian component, target band, transition band)
+                dEij, & ! out, allocated as dEij(nbcderki,nbki)
+                        !      = E_transition-E_target [Ha]
+                pijUP, &! out, allocated as pijUP(3,nbcderki,nbki)
+                        !      only when soc_sp_resolv_pij is true
+                pijDN)  ! out, allocated as pijDN(3,nbcderki,nbki)
+                        !      only when soc_sp_resolv_pij is true
+        ELSE
+            ! Extract the current VASP matrix elements and energy differences.
+            ALLOCATE( &
+                pij(3,nbcderki,nbki), &
+                dEij(nbcderki,nbki))
+
+            pij = pijks(:,1:nbcderki,1:nbki,ikpt,ispin)
+            dEij = dEijks(1:nbcderki,1:nbki,ikpt,ispin)
         END IF
 
-        !! Identify band degeneracies
+        !! Ordinary Berry curvature
 
-        CALL finddegenblocks(nb, dEij, 1.0e-5, & ! <- args in 
-            dg_group, ngroups) ! -> args out (dg_group is allocated inside)
-        ! check returned arrays
-        IF (.NOT. ALLOCATED(dg_group)) ERROR STOP 'Array dg_group is not allocated.'
-        IF (ANY(SHAPE(dg_group) /= [nb])) THEN
-            WRITE (*,*) 'Array "dg_group" has shape', SHAPE(dg_group)
-            WRITE (*,*) 'while expected', [nb]
-            ERROR STOP "Shape mismatch in array dg_group"
-        END IF
+        CALL calculate_bcurv_kpoint( &
+            nbki, nbcderki, &                       ! in
+            dg_groupk(1:nbki,ikpt,ispin), &         ! in
+            pij, pij, dEij, &                       ! in
+            bcurv)                                  ! out, allocated as
+                                                    ! bcurv(nbcderki,3)
+                                                    ! = (target band, yz/zx/xy)
+                                                    ! in bohr^2
 
-        !! Handle situation when the degenerate block extends past 'nvb'
+        CALL write_bcurv_kpoint( &
+            output_units%bcurv, ikpt, nbki, nbcderki, & ! in
+            dg_groupk(1:nbki,ikpt,ispin), &             ! in
+            occup(1:nbcderki,ikpt,ispin), bcurv)        ! in
 
-        DO n = nvb+1, nb
-            IF (dg_group(nvb) .NE. dg_group(n)) THEN ! end of deceneracy group
-                IF (n-1 > nvb) THEN
-                    WRITE(*,'(A,I0,A,I0,A,I0,A)') 'WARNING: While processing ' &
-                        //'k-point ', ikpt, &
-                        ', the last occupied band was updated from ', &
-                        nvbinpt, ' to ', n-1, ' due to degeneracy.'
-                END IF
-                nvb = n-1
-                EXIT ! DO loop
-            END IF
-        END DO
+        DEALLOCATE(bcurv)
 
-        !! Write information about the current k-point
+        !! Spin-resolved Berry-curvature quantities
 
-        WRITE(2,'(A,I0,1X,A,I0,1X,A,I0)') & !...
-                '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
-        WRITE(3,'(A,I0,1X,A,I0,1X,A,I0)') & !...
-                '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
-        IF ( wien2k .AND. spinor ) THEN
-            WRITE(21,'(A,I0,1X,A,I0,1X,A,I0)') & !...
-                    '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
-            WRITE(22,'(A,I0,1X,A,I0,1X,A,I0)') & !...
-                    '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
-            WRITE(23,'(A,I0,1X,A,I0,1X,A,I0)') & !...
-                    '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
-            WRITE(31,'(A,I0,1X,A,I0,1X,A,I0)') & !...
-                    '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
-        END IF
-        WRITE(32,'(A,I0,1X,A,I0,1X,A,I0)') & !...
-                '# KP: ', ikpt, 'NVB: ', nvb, 'NEMAX: ', nb
-        
-        !! Prepare output formats for Berry curvatures
-        
-        WRITE(wformat2,'(I0)') nvb ! make a character of the length 'nvb'
-        ! format line to WRITE Berry curvatures
-        WRITE(wformat2,'(I0)') LEN(TRIM(wformat2))
-        wformat2 = '(I' // TRIM(wformat2) // ',1X,5(es10.3,1X),es10.3)'
+        IF (wien2k .AND. soc_sp_resolv_pij) THEN
 
-        !! Prepare output formats for generalized OAM(i,j)
+            !! Spin-up contribution to the Berry curvature
+            !
+            ! First operator:  pijA = pijUP
+            ! Second operator: pijB = pij
 
-        wformat32 = '(*( :, "(", ES12.4E3, ",", ES12.4E3, ")", : , 1X ))'
-            
-        !! Loop through blocks of occupied bands
+            CALL calculate_bcurv_kpoint( &
+                nbki, nbcderki, &                         ! in
+                dg_groupk(1:nbki,ikpt,ispin), &           ! in
+                pijUP, pij, dEij, &                       ! in
+                bcurv)                                    ! out
 
-        ! array to store non-spin-resolved Berry curvatures and OAM
-        ! Size 3 is because of only off-diogonal components of the Berry
-        ! curvature and OAM tensor (4=yz; 5=zx; 6=xy) are not = 0
-        ALLOCATE( bcurv(nvb,3) )
-        ALLOCATE( oam(nvb,3) )
-        ALLOCATE( goam(nvb,nvb,3) )
-        bcurv = 0.0_dp
-        oam = 0.0_dp
-        goam = (0.0_dp, 0.0_dp)
-        ! Loop over groups of degenerate bands in the range of [1:nvb].
-        ! Each band is treated as a degenerate group of size 1 if not part 
-        ! of a larger degenerate block.
-        DO ig = 1, dg_group(nvb)
-            nmg = COUNT(dg_group == ig) ! number of group members
-            ALLOCATE( members(nmg) )
-            ! get bands that are members of the group
-            m = 0
-            DO n = 1, nb
-                IF (dg_group(n) == ig) THEN
-                    m = m + 1
-                    members(m) = n
-                ELSE IF (m > 0) THEN
-                    ! break the loop once first condition is not true any more,
-                    ! which marks the end of a degenerate block
-                    EXIT
-                END IF
+            CALL write_bcurv_kpoint( &
+                output_units%bcurv_up, ikpt, nbki, nbcderki, & ! in
+                dg_groupk(1:nbki,ikpt,ispin), &                ! in
+                occup(1:nbcderki,ikpt,ispin), bcurv)           ! in
+
+            DEALLOCATE(bcurv)
+
+            !! Spin-down contribution to the Berry curvature
+            !
+            ! First operator:  pijA = pijDN
+            ! Second operator: pijB = pij
+
+            CALL calculate_bcurv_kpoint( &
+                nbki, nbcderki, &                         ! in
+                dg_groupk(1:nbki,ikpt,ispin), &           ! in
+                pijDN, pij, dEij, &                       ! in
+                bcurv)                                    ! out
+
+            CALL write_bcurv_kpoint( &
+                output_units%bcurv_dn, ikpt, nbki, nbcderki, & ! in
+                dg_groupk(1:nbki,ikpt,ispin), &                ! in
+                occup(1:nbcderki,ikpt,ispin), bcurv)           ! in
+
+            DEALLOCATE(bcurv)
+
+            !! Sigma_z-normalized spin Berry curvature
+            !
+            ! First operator:  pijA = pijUP - pijDN
+            ! Second operator: pijB = pij
+            !
+            ! Construct the first-operator matrix explicitly. Scalar loops are
+            ! used so that the subtraction does not require an array-expression
+            ! temporary.
+
+            ALLOCATE(pijSPIN(3,nbcderki,nbki))
+
+            DO j = 1, nbki
+                DO i = 1, nbcderki
+                    DO alpha = 1, 3
+                        pijSPIN(alpha,i,j) = &
+                            pijUP(alpha,i,j) - pijDN(alpha,i,j)
+                    END DO
+                END DO
             END DO
-            ! loop over Voigt indices
-            DO ivoigt = 4, 6
-                ! handle Voigt notations
-                alpha = 0; beta = 0 ! initialize
-                SELECT CASE (ivoigt)
-                    CASE (4); alpha = 2; beta = 3 ! 4=yz
-                    CASE (5); alpha = 3; beta = 1 ! 5=zx
-                    CASE (6); alpha = 1; beta = 2 ! 6=xy
-                END SELECT
-                ! degenerate group 1st and last band
-                idg1 = members(1)
-                idg2 = members(nmg)
-                IF (idg1 .GT. idg2) THEN
-                    WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
-                    WRITE(*,*) 'Degenerate group misidentified: idg1 > idg2'
-                    ERROR STOP
-                END IF
-                ! allocate group-specific arrays
-                ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb) )
-                ! get group-specific matrix elements and energies
-                DO m = 1, nmg
-                    pijA(m,:) = pij(alpha, members(m), :)
-                    pijB(:,m) = pij(beta, :, members(m))
-                    dEijdg(m,:) = dEij(members(m), :)
-                END DO
-                ! solve degenerate PT problem for Berry curvature
-                CALL degenbc(nb, idg1, idg2, & ! <- args in
-                    pijA, pijB, dEijdg, & ! <- args in 
-                    bcurvdg) ! -> args out (allocated inside)
-                ! check returned arrays
-                IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
-                IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
-                    WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
-                    WRITE (*,*) 'while expected', [nmg]
-                    ERROR STOP "Shape mismatch in array bcurvdg"
-                END IF
-                ! solve degenerate PT problem for OAM
-                CALL degenoam(nb, idg1, idg2, & ! <- args in
-                    pijA, pijB, dEijdg, & ! <- args in 
-                    oamdg) ! -> args out (oamdg allocated inside)
-                ! check returned arrays
-                IF (.NOT. ALLOCATED(oamdg)) ERROR STOP 'Array oamdg is not allocated.'
-                IF (ANY(SHAPE(oamdg) /= [nmg])) THEN
-                    WRITE (*,*) 'Array "oamdg" has shape', SHAPE(oamdg)
-                    WRITE (*,*) 'while expected', [nmg]
-                    ERROR STOP "Shape mismatch in array oamdg"
-                END IF
-                ! solve degenerate PT problem for generalized OAM(i,j)
-                CALL goamfn(nb, nvb, idg1, idg2, dg_group, & ! <- args in
-                    pij(alpha,1:nvb,:), pij(beta,:,1:nvb), dEij, & ! <- args in 
-                    goamdg) ! -> args out (goamdg allocated inside)
-                ! check returned arrays
-                IF (.NOT. ALLOCATED(goamdg)) ERROR STOP 'Array goamdg is not allocated.'
-                IF (ANY(SHAPE(goamdg) /= [nvb,nvb])) THEN
-                    WRITE (*,*) 'Array "goamdg" has shape', SHAPE(goamdg)
-                    WRITE (*,*) 'while expected', [nvb,nvb]
-                    ERROR STOP "Shape mismatch in array goamdg"
-                END IF
-                ! store group result for the Berry curvature and OAM in array
-                DO m = 1, nmg
-                    bcurv(members(m), ivoigt-3) = bcurvdg(m)
-                    oam(members(m), ivoigt-3) = oamdg(m)
-                    goam(members(m), idg1:nvb, ivoigt-3) = &
-                        goamdg(members(m), idg1:nvb)
-                    goam(idg1:nvb, members(m), ivoigt-3) = &
-                        goamdg(idg1:nvb, members(m))
-                END DO
-                DEALLOCATE(pijA, pijB, dEijdg, bcurvdg, oamdg, goamdg)
-            END DO ! loop over 'ivoigt'
-            DEALLOCATE( members)
-        END DO ! loop over 'ig'
-        ! store the Berry curvature and OAM band-by-band for all occupied states
-        DO ivb = 1, nvb
-            WRITE(2,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
-            WRITE(3,TRIM(wformat2)) ivb, (oam(ivb,j), j=1,3)
-        END DO
-        ! store the total Berry curvature for all occupied states
-        WRITE(2,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
-        ! store generalized OAM(i,j) matrix
-        DO ivoigt = 4, 6
-            WRITE(32,'(A,I0)') & !...
-                '# Voigt index: ', ivoigt
-            DO ivb = 1, nvb
-                WRITE(32,wformat32) (goam(ivb, j, ivoigt-3), j=1,nvb)
-            END DO ! ivb
-        END DO ! ivoigt
-        DEALLOCATE( bcurv, oam, goam )
 
-        ! calculate spin-resolved and spin Berry curvature or OAM
-        IF ( wien2k .AND. spinor ) THEN
-            ! spin-resolved OAM
-            ! OAM^{sigma_z, up}_{ab,n} = <u|L_{ab}*1/2*(I+sigma_z)|u>
-            ! here I -- identity matrix,
-            !      sigma_z -- Pauli matrix
-            ! 1/2*(I+sigma_z) = (1 0; 0 0), leading to the PT sum over states
-            ! OAM^{sigma_z, up}_{ab,n} = 
-            !    ... sum_m 2*Im[p_{nm}^{up,up}*p_{mn}^{up,up}]/(E_n - E_m)
-            ! in atomic units
-            ALLOCATE( oam(nvb,3) )
-            oam = 0.0_dp
-            ! Loop over groups of degenerate bands in the range of [1:nvb].
-            ! Even if a band is not degenerate, it is still considered as
-            ! degeneracy of the size 1.
-            DO ig = 1, dg_group(nvb)
-                nmg = COUNT(dg_group == ig) ! number of group members
-                ALLOCATE( members(nmg) )
-                ! get bands that are members of the group
-                m = 0
-                DO n = 1, nb
-                    IF (dg_group(n) == ig) THEN
-                        m = m + 1
-                        members(m) = n
-                    ELSE IF (m > 0) THEN
-                        ! break the loop once first condition is not true any more,
-                        ! which marks the end of a degenerate block
-                        EXIT
-                    END IF
-                END DO
-                ! loop over Voigt indices
-                DO ivoigt = 4, 6
-                    ! handle Voigt notations
-                    alpha = 0; beta = 0 ! initialize
-                    SELECT CASE (ivoigt)
-                        CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 3; beta = 1 ! 5=zx
-                        CASE (6); alpha = 1; beta = 2 ! 6=xy
-                    END SELECT
-                    ! degenerate group 1st and last band
-                    idg1 = members(1)
-                    idg2 = members(nmg)
-                    IF (idg1 .GT. idg2) THEN
-                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
-                        ERROR STOP 'Wrong boundaries of the degenerate block'
-                    END IF
-                    ! allocate group-specific arrays
-                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
-                    ! get group-specific matrix elements and energies
-                    DO m = 1, nmg
-                        pijA(m,:) = pijUP(alpha, members(m), :)
-                        pijB(:,m) = pijUP(beta, :, members(m))
-                        dEijdg(m,:) = dEij(members(m), :)
-                    END DO
-                    ! solve degenerate PT problem
-                    CALL degenoam(nb, idg1, idg2, & ! <- args in
-                        pijA, pijB, dEijdg, & ! <- args in 
-                        oamdg) ! -> args out (allocated inside)
-                    ! check returned arrays
-                    IF (.NOT. ALLOCATED(oamdg)) ERROR STOP 'Array oamdg is not allocated.'
-                    IF (ANY(SHAPE(oamdg) /= [nmg])) THEN
-                        WRITE (*,*) 'Array "oamdg" has shape', SHAPE(oamdg)
-                        WRITE (*,*) 'while expected', [nmg]
-                        ERROR STOP "Shape mismatch in array oamdg"
-                    END IF
-                    ! store group result for OAM in array
-                    DO m = 1, nmg
-                        oam(members(m), ivoigt-3) = oamdg(m)
-                    END DO
-                    DEALLOCATE(pijA, pijB, dEijdg, oamdg)
-                END DO ! loop over 'ivoigt'
-                DEALLOCATE( members)
-            END DO ! loop over 'ig'
-            ! store OAM band-by-band for all occupied states
-            DO ivb = 1, nvb
-                WRITE(31,TRIM(wformat2)) ivb, (oam(ivb,j), j=1,3)
-            END DO
-            DEALLOCATE( oam )
+            CALL calculate_bcurv_kpoint( &
+                nbki, nbcderki, &                         ! in
+                dg_groupk(1:nbki,ikpt,ispin), &           ! in
+                pijSPIN, pij, dEij, &                     ! in
+                bcurv)                                    ! out
 
-            ! spin UP Berry curvature
-            ALLOCATE( bcurv(nvb,3) )
-            bcurv = 0.0_dp
-            ! Loop over groups of degenerate bands in the range of [1:nvb].
-            ! Even if a band is not degenerate, it is still considered as
-            ! degeneracy of the size 1.
-            DO ig = 1, dg_group(nvb)
-                nmg = COUNT(dg_group == ig) ! number of group members
-                ALLOCATE( members(nmg) )
-                ! get bands that are members of the group
-                m = 0
-                DO n = 1, nb
-                    IF (dg_group(n) == ig) THEN
-                        m = m + 1
-                        members(m) = n
-                    ELSE IF (m > 0) THEN
-                        ! break the loop once first condition is not true any more,
-                        ! which marks the end of a degenerate block
-                        EXIT
-                    END IF
-                END DO
-                ! loop over Voigt indices
-                DO ivoigt = 4, 6
-                    ! handle Voigt notations
-                    alpha = 0; beta = 0 ! initialize
-                    SELECT CASE (ivoigt)
-                        CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 3; beta = 1 ! 5=zx
-                        CASE (6); alpha = 1; beta = 2 ! 6=xy
-                    END SELECT
-                    ! degenerate group 1st and last band
-                    idg1 = members(1)
-                    idg2 = members(nmg)
-                    IF (idg1 .GT. idg2) THEN
-                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
-                        ERROR STOP 'Wrong boundaries of the degenerate block'
-                    END IF
-                    ! allocate group-specific arrays
-                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
-                    ! get group-specific matrix elements and energies
-                    DO m = 1, nmg
-                        pijA(m,:) = pijUP(alpha, members(m), :)
-                        pijB(:,m) = pij(beta, :, members(m))
-                        dEijdg(m,:) = dEij(members(m), :)
-                    END DO
-                    ! solve degenerate PT problem
-                    CALL degenbc(nb, idg1, idg2, & ! <- args in
-                        pijA, pijB, dEijdg, & ! <- args in 
-                        bcurvdg) ! -> args out
-                    ! check returned arrays
-                    IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
-                    IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
-                        WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
-                        WRITE (*,*) 'while expected', [nmg]
-                        ERROR STOP "Shape mismatch in array bcurvdg"
-                    END IF
-                    ! store group result for the Berry curvature in array
-                    DO m = 1, nmg
-                        bcurv(members(m), ivoigt-3) = bcurvdg(m)
-                    END DO
-                    DEALLOCATE(pijA, pijB, dEijdg, bcurvdg)
-                END DO ! loop over 'ivoigt'
-                DEALLOCATE( members)
-            END DO ! loop over 'ig'
-            ! store the Berry curvature band-by-band for all occupied states
-            DO ivb = 1, nvb
-                WRITE(21,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
-            END DO
-            ! store the total Berry curvature for all occupied states
-            WRITE(21,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
-            DEALLOCATE( bcurv )
+            CALL write_bcurv_kpoint( &
+                output_units%bcurv_spin, ikpt, nbki, nbcderki, & ! in
+                dg_groupk(1:nbki,ikpt,ispin), &                  ! in
+                occup(1:nbcderki,ikpt,ispin), bcurv)             ! in
 
-            ! spin DN Berry curvature
-            ALLOCATE( bcurv(nvb,3) )
-            bcurv = 0.0_dp
-            ! Loop over groups of degenerate bands in the range of [1:nvb].
-            ! Even if a band is not degenerate, it is still considered as
-            ! degeneracy of the size 1.
-            DO ig = 1, dg_group(nvb)
-                nmg = COUNT(dg_group == ig) ! number of group members
-                ALLOCATE( members(nmg) )
-                ! get bands that are members of the group
-                m = 0
-                DO n = 1, nb
-                    IF (dg_group(n) == ig) THEN
-                        m = m + 1
-                        members(m) = n
-                    ELSE IF (m > 0) THEN
-                        ! break the loop once first condition is not true any more,
-                        ! which marks the end of a degenerate block
-                        EXIT
-                    END IF
-                END DO
-                ! loop over Voigt indices
-                DO ivoigt = 4, 6
-                    ! handle Voigt notations
-                    alpha = 0; beta = 0 ! initialize
-                    SELECT CASE (ivoigt)
-                        CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 3; beta = 1 ! 5=zx
-                        CASE (6); alpha = 1; beta = 2 ! 6=xy
-                    END SELECT
-                    ! degenerate group 1st and last band
-                    idg1 = members(1)
-                    idg2 = members(nmg)
-                    IF (idg1 .GT. idg2) THEN
-                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
-                        ERROR STOP 'Wrong boundaries of the degenerate block'
-                    END IF
-                    ! allocate group-specific arrays
-                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
-                    ! get group-specific matrix elements and energies
-                    DO m = 1, nmg
-                        pijA(m,:) = pijDN(alpha, members(m), :)
-                        pijB(:,m) = pij(beta, :, members(m))
-                        dEijdg(m,:) = dEij(members(m), :)
-                    END DO
-                    ! solve degenerate PT problem
-                    CALL degenbc(nb, idg1, idg2, & ! <- args in
-                        pijA, pijB, dEijdg, & ! <- args in 
-                        bcurvdg) ! -> args out
-                    ! check returned arrays
-                    IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
-                    IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
-                        WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
-                        WRITE (*,*) 'while expected', [nmg]
-                        ERROR STOP "Shape mismatch in array bcurvdg"
-                    END IF
-                    ! store group result for the Berry curvature in array
-                    DO m = 1, nmg
-                        bcurv(members(m), ivoigt-3) = bcurvdg(m)
-                    END DO
-                    DEALLOCATE(pijA, pijB, dEijdg, bcurvdg)
-                END DO ! loop over 'ivoigt'
-                DEALLOCATE( members)
-            END DO ! loop over 'ig'
-            ! store the Berry curvature band-by-band for all occupied states
-            DO ivb = 1, nvb
-                WRITE(22,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
-            END DO
-            ! store the total Berry curvature for all occupied states
-            WRITE(22,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
-            DEALLOCATE( bcurv )
+            DEALLOCATE(bcurv)
+            DEALLOCATE(pijSPIN)
 
-            ! spin UP-DN Berry curvature (Omega^z)
-            ALLOCATE( bcurv(nvb,3) )
-            bcurv = 0.0_dp
-            ! Loop over groups of degenerate bands in the range of [1:nvb].
-            ! Even if a band is not degenerate, it is still considered as
-            ! degeneracy of the size 1.
-            DO ig = 1, dg_group(nvb)
-                nmg = COUNT(dg_group == ig) ! number of group members
-                ALLOCATE( members(nmg) )
-                ! get bands that are members of the group
-                m = 0
-                DO n = 1, nb
-                    IF (dg_group(n) == ig) THEN
-                        m = m + 1
-                        members(m) = n
-                    ELSE IF (m > 0) THEN
-                        ! break the loop once first condition is not true any more,
-                        ! which marks the end of a degenerate block
-                        EXIT
-                    END IF
-                END DO
-                ! loop over Voigt indices
-                DO ivoigt = 4, 6
-                    ! handle Voigt notations
-                    alpha = 0; beta = 0 ! initialize
-                    SELECT CASE (ivoigt)
-                        CASE (4); alpha = 2; beta = 3 ! 4=yz
-                        CASE (5); alpha = 3; beta = 1 ! 5=zx
-                        CASE (6); alpha = 1; beta = 2 ! 6=xy
-                    END SELECT
-                    ! degenerate group 1st and last band
-                    idg1 = members(1)
-                    idg2 = members(nmg)
-                    IF (idg1 .GT. idg2) THEN
-                        WRITE(*,'(2(A,I0))') 'idg1=', idg1, ' idg2=', idg2
-                        ERROR STOP 'Wrong boundaries of the degenerate block'
-                    END IF
-                    ! allocate group-specific arrays
-                    ALLOCATE( pijA(nmg,nb), pijB(nb,nmg), dEijdg(nmg,nb))
-                    ! get group-specific matrix elements and energies
-                    DO m = 1, nmg
-                        pijA(m,:) = pijUP(alpha, members(m), :) - &!...
-                            pijDN(alpha, members(m), :)
-                        pijB(:,m) = pij(beta, :, members(m))
-                        dEijdg(m,:) = dEij(members(m), :)
-                    END DO
-                    ! solve degenerate PT problem
-                    CALL degenbc(nb, idg1, idg2, & ! <- args in
-                        pijA, pijB, dEijdg, & ! <- args in 
-                        bcurvdg) ! -> args out
-                    ! check returned arrays
-                    IF (.NOT. ALLOCATED(bcurvdg)) ERROR STOP 'Array bcurvdg is not allocated.'
-                    IF (ANY(SHAPE(bcurvdg) /= [nmg])) THEN
-                        WRITE (*,*) 'Array "bcurvdg" has shape', SHAPE(bcurvdg)
-                        WRITE (*,*) 'while expected', [nmg]
-                        ERROR STOP "Shape mismatch in array bcurvdg"
-                    END IF
-                    ! store group result for the Berry curvature in array
-                    DO m = 1, nmg
-                        bcurv(members(m), ivoigt-3) = bcurvdg(m)
-                    END DO
-                    DEALLOCATE(pijA, pijB, dEijdg, bcurvdg)
-                END DO ! loop over 'ivoigt'
-                DEALLOCATE( members)
-            END DO ! loop over 'ig'
-            ! store the Berry curvature band-by-band for all occupied states
-            DO ivb = 1, nvb
-                WRITE(23,TRIM(wformat2)) ivb, (bcurv(ivb,j), j=1,3)
-            END DO
-            ! store the total Berry curvature for all occupied states
-            WRITE(23,TRIM(wformat2)) 0, (SUM(bcurv(:,j)), j=1,3)
-            DEALLOCATE( bcurv )
-        END IF ! WIEN2k spin-resolved Berry curvature
-
-        DEALLOCATE( pij, dEij, dg_group ) ! all k-point specific variables
-        IF ( wien2k .AND. spinor ) THEN
-            DEALLOCATE( pijUP, dEijUP, pijDN, dEijDN ) ! up/dn components
-        END IF
-        
-        !! Output progress to screen
-        
-        IF (wien2k) THEN
-            WRITE(*,'(A,I0,A,I0,A,I3,A)') & !...
-                ' KP: ', ikpt, ' bands: ', nb, & !...
-                ' progress: ', INT(100*iline/nltot), '%'
-        ELSE ! VASP
-            IF (ispin==1 .AND. nstot==2) THEN
-                WRITE(*,'(A,I0,A,I0,A,I0,A,I3,A)') & !...
-                    ' KP: ', ikpt, ' spin: ', ispin, ' bands: ', nb, & !...
-                    ' progress: ', INT(100*ikpt/nktot/2), '%'
-            ELSE IF (ispin==2 .AND. nstot==2) THEN
-                WRITE(*,'(A,I0,A,I0,A,I0,A,I3,A)') & !...
-                    ' KP: ', ikpt, ' spin: ', ispin, ' bands: ', nb, & !...
-                    ' progress: ', INT(100*ikpt/nktot/2 + 50), '%'
-            ELSE
-                WRITE(*,'(A,I0,A,I0,A,I3,A)') & !...
-                    ' KP: ', ikpt, ' bands: ', nb, & !...
-                    ' progress: ', INT(100*ikpt/nktot), '%'
-            END IF
-        END IF
-        
-        !! Check if the end of file mommat is reached
-        
-        IF ( wien2k ) THEN
-            IF (iline == nltot) THEN ! end of mommat file, exit WHILE loop
-                fmommatend = .true.
-            END IF
-        ELSE ! VASP
-            IF (ikpt == nktot) THEN ! end of WAVEDER file, exit WHILE loop
-                fmommatend = .true.
-            END IF
         END IF
 
-    END DO ! loop over k-points
-    
-    !! Close output files
-    
-    CLOSE (2) ! output file with Berry curvature
-    IF ( wien2k .AND. spinor ) THEN
-        CLOSE (21) ! spin-resolved UP Berry curvature
-        CLOSE (22) ! spin-resolved DN Berry curvature
-        CLOSE (23) ! spin-resolved UP-DN Berry curvature
-    END IF
-    CLOSE (3) ! output file with OAM
-    IF ( wien2k .AND. spinor ) THEN
-        CLOSE (31) ! spin-resolved UP OAM
-    END IF
-    CLOSE (32) ! output file with generalized OAM
+        !! Ordinary orbital angular momentum
 
-END DO ! loop over spins
+        ! The ordinary OAM uses the total momentum matrix elements in both
+        ! operator positions:
+        !
+        !     pijA = pij
+        !     pijB = pij
 
-!! Close input files
+        CALL calculate_oam_kpoint( &
+            nbki, nbcderki, &                       ! in
+            dg_groupk(1:nbki,ikpt,ispin), &         ! in
+            pij, pij, dEij, &                       ! in
+            oam)                                    ! out, allocated as
+                                                    ! oam(nbcderki,3)
+                                                    ! = (target band, yz/zx/xy)
+                                                    ! in hbar
 
-CLOSE (1) ! input  file 1 (case.mommat2 or WAVEDER)
-IF ( wien2k .AND. spinor ) THEN
-    CLOSE (11) ! case.mommat2up
-    CLOSE (12) ! case.mommat2dn
+        CALL write_oam_kpoint( &
+            output_units%oam, ikpt, nbki, nbcderki, & ! in
+            dg_groupk(1:nbki,ikpt,ispin), oam)        ! in
+
+        DEALLOCATE(oam)
+
+        !! Spin orbital angular momentum
+
+        IF (wien2k .AND. soc_sp_resolv_pij) THEN
+
+            ! The spin OAM implemented here is the spin-up-projected OAM.
+            ! Unlike the spin-related Berry-curvature quantities, it uses the
+            ! spin-up momentum matrix elements in both operator positions:
+            !
+            !     pijA = pijUP
+            !     pijB = pijUP
+            !
+            ! It is therefore not calculated using pijUP-pijDN, nor does it
+            ! use the total momentum matrix pij in the second operator
+            ! position.
+
+            CALL calculate_oam_kpoint( &
+                nbki, nbcderki, &                         ! in
+                dg_groupk(1:nbki,ikpt,ispin), &           ! in
+                pijUP, pijUP, dEij, &                     ! in
+                oam)                                      ! out
+
+            CALL write_oam_kpoint( &
+                output_units%oam_up, &                    ! in
+                ikpt, nbki, nbcderki, &                   ! in
+                dg_groupk(1:nbki,ikpt,ispin), oam)        ! in
+
+            DEALLOCATE(oam)
+
+        END IF
+
+        !! Generalized orbital angular momentum
+
+        CALL calculate_goam_kpoint( &
+            nbki, nbcderki, &                   ! in
+            dg_groupk(1:nbki,ikpt,ispin), &     ! in
+            pij, pij, dEij, &                   ! in
+            goam)                               ! out, allocated as
+                                                ! goam(nbcderki,nbcderki,3)
+                                                ! = <u_i|L_c|u_j>, with
+                                                !   i = bra band
+                                                !   j = ket band
+                                                !   c = yz, zx, xy
+                                                ! units: hbar
+
+        CALL write_goam_kpoint( &
+            output_units%goam, ikpt, nbki, nbcderki, & ! in
+            dg_groupk(1:nbcderki,ikpt,ispin), goam)    ! in
+
+        DEALLOCATE(goam)
+
+        !! Release current k-point matrices
+
+        IF (ALLOCATED(pij)) DEALLOCATE(pij)
+        IF (ALLOCATED(dEij)) DEALLOCATE(dEij)
+        IF (ALLOCATED(pijUP)) DEALLOCATE(pijUP)
+        IF (ALLOCATED(pijDN)) DEALLOCATE(pijDN)
+
+        CALL write_progress( &
+            ispin, nstot, ikpt, nktot) ! in
+
+    END DO
+
+    CALL close_output_files( &
+        output_units) ! in/out
+
+END DO
+
+!! Close WIEN2k matrix-element files
+
+IF (wien2k) THEN
+    CALL close_mommat_files( &
+        unitinp, unitinpUP, unitinpDN) ! in/out
 END IF
 
-WRITE(*,*) 'Summary of the output:'
-WRITE(*,*) '(1) Components of the Berry curvature tensor are stored in the file'
-WRITE(*,*) '    ' // TRIM(fnameout2)
-WRITE(*,*) '    See the file header for the description'
-WRITE(*,*) '(2) Components of the orbital angular momentum tensor are stored in the file'
-WRITE(*,*) '    ' // TRIM(fnameout3)
-IF ( wien2k .AND. spinor ) THEN
-    WRITE(*,*) '(3) Spin Berry curvature (WIEN2k only) is stored in'
-    WRITE(*,*) '    ' // TRIM(fnameout21) // ', ' // &
-        TRIM(fnameout22) // ', ' // TRIM(fnameout23)
-    WRITE(*,*) '(4) Spin OAM sigma_z, UP (WIEN2k only) is stored in'
-        WRITE(*,*) '    ' // TRIM(fnameout31)
-END IF
-WRITE(*,*) ''
-WRITE(*,*) 'Suggested reference:'
-WRITE(*,'(A,/A,/,A)') '[1] Rubel, O. (2024). BerryCPT: Berry curvature and orbital ', &
-    '    angular momentum from perturbation theory [Computer software]. ', &
-    '    GitHub. https://github.com/rubel75/berrycpt'
-STOP ! end of the main code
+!! Release complete VASP matrices
 
+IF (ALLOCATED(pijks)) DEALLOCATE(pijks)
+IF (ALLOCATED(dEijks)) DEALLOCATE(dEijks)
 
+WRITE(*,'(A)') ' Completed the main spin and k-point loops.'
 
-!! Help section
+CALL write_output_summary()
 
-911 & ! label for GOTO statement
-WRITE(*,*) 'Suggested execution (WIEN2k, no SP, no SOC):'
-WRITE(*,*) '$ ./berrycpt mass.mommat2 -nvb 26'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (WIEN2k, with SP, no SOC):'
-WRITE(*,*) '$ ./berrycpt mass.mommat2up -nvb 26'
-WRITE(*,*) '$ ./berrycpt mass.mommat2dn -nvb 26'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (WIEN2k, with SOC to produce spin-resolved output):'
-WRITE(*,*) '$ ./berrycpt mass.mommat2 -nvb 26 -so'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (VASP) with the number of occupied bands:'
-WRITE(*,*) '$ ./berrycpt WAVEDER -nvb 26'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (VASP) with the Fermi energy (eV):'
-WRITE(*,*) '$ ./berrycpt WAVEDER -efermiev 3.123'
-WRITE(*,*) ''
-WRITE(*,*) 'Output:'
-WRITE(*,*) 'bcurv_ij.dat - contains elements of the Berry curvature tensor.'
-WRITE(*,*) 'bcurv_ij-[up,dn].dat - contains elements of the spin-resolved'
-WRITE(*,*) '     Berry curvature tensor.'
-WRITE(*,*) 'If the files already exist from a previous run, they will be overwritten'
-WRITE(*,*) ''
-WRITE(*,*) 'Tips:'
-WRITE(*,*) '(1): Writing of the mommat file is _not_ default in WIEN2k.'
-WRITE(*,*) '     To enable writing, edit the case.inop file and change'
-WRITE(*,*) '     OFF to ON in the following line:'
-WRITE(*,*) '     ON           ON/OFF   WRITEs MME to unit 4'
-WRITE(*,*) '     -^'
-WRITE(*,*) '(2): Make sure to get _plenty_ empty bands during SCF.'
-WRITE(*,*) '     This requires modification in several input files:'
-WRITE(*,*) '     (a) extend "de" in case.in1(c) above 5 Ry'
-WRITE(*,'(A)') '          K-VECTORS FROM UNIT:4   -9.0      10.0'//&!...
-    '    10   emin / de (emax=Ef+de) / nband'
-WRITE(*,*) '         -----------------------------------^'
-WRITE(*,*) '     (b) if you do SOC calculation, extend "Emax" in'
-WRITE(*,*) '         case.inso up to 5 Ry'
-WRITE(*,*) '         -10 5.0                Emin, Emax'
-WRITE(*,*) '         -----^'
-WRITE(*,*) '     (c) default "Emax" in case.inop is 3 Ry, which should'
-WRITE(*,*) '         be OK, but it can be good to test the convergence'
-WRITE(*,*) '         and push this parameter up to 5 Ry'
-WRITE(*,*) '         -5.0 3.5 9999 Emin, Emax for matrix elements, NBvalMAX'
-WRITE(*,*) '         ------^'
-WRITE(*,*) '(3): In VASP calculations use LOPTICS = .TRUE., increase'
-WRITE(*,*) '     (at least x3) the number NBANDS = XXXX, and disable a finite'
-WRITE(*,*) '     differences derivative of the cell-periodic part of'
-WRITE(*,*) '     the orbitals LPEAD =.FALSE.'
-STOP
-
-!! Error section
-
-912 & ! label for GOTO statement
-WRITE(*,*) 'Error detected for the number of input arguments.'
-WRITE(*,*) 'There should be 3 or 4 arguments'
-WRITE(*,*) 'Suggested execution (WIEN2k, no SP, no SOC):'
-WRITE(*,*) '$ ./berrycpt mass.mommat2 -nvb 26'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (WIEN2k, with SP, no SOC):'
-WRITE(*,*) '$ ./berrycpt mass.mommat2up -nvb 26'
-WRITE(*,*) '$ ./berrycpt mass.mommat2dn -nvb 26'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (WIEN2k, with SOC):'
-WRITE(*,*) '$ ./berrycpt mass.mommat2 -nvb 26 -so'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (VASP) with the number of occupied bands:'
-WRITE(*,*) '$ ./berrycpt WAVEDER -nvb 26'
-WRITE(*,*) ' '
-WRITE(*,*) 'Suggested execution (VASP) with the Fermi energy (eV):'
-WRITE(*,*) '$ ./berrycpt WAVEDER -efermiev 3.123'
-ERROR STOP
+WRITE(*,'(/,A)') &
+    ' Please cite BerryCPT in publications and other scholarly work'
+WRITE(*,'(A)') &
+    ' that use this software or results generated with it.'
+WRITE(*,'(A)') &
+    ' Suggested citation:'
+    WRITE(*,'(A)') &
+    ' Rubel, O. (2024). BerryCPT: Berry curvature and orbital angular'
+WRITE(*,'(A)') &
+    ' momentum from DFT calculations [Computer software].'
+WRITE(*,'(A)') &
+    ' https://github.com/rubel75/berrycpt'
 
 END PROGRAM berrycpt
