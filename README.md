@@ -65,77 +65,22 @@ make veryclean
 
 ## Input preparation
 
-BerryCPT requires matrix elements, eigenvalues, and either a Fermi energy or band occupations. The number of empty states must be convergence-tested because Berry curvature and OAM contain sums over intermediate states.
+BerryCPT requires matrix elements, eigenvalues, and either an explicit
+Fermi energy or occupations calculated by the DFT code.
 
-General guidance for generating WIEN2k `case.mommat2` and VASP `WAVEDER` files is available on the [Wiki page](https://github.com/rubel75/mstar/wiki). The main preparation and convergence considerations are summarized below. More detailed WIEN2k instructions are provided on the [WIEN2k-specific Wiki page](https://github.com/rubel75/mstar/wiki/Generate-case.mommat2-file-in-WIEN2k).
+Instructions for generating the required matrix-element files are available
+on the Wiki:
 
-### WIEN2k
+- [Generating WIEN2k `case.mommat2` files](https://github.com/rubel75/mstar/wiki/Generate-case.mommat2-file-in-WIEN2k)
+- [Generating WIEN2k `case.mommat2` and VASP `WAVEDER` files](https://github.com/rubel75/mstar/wiki)
 
-The primary matrix-element input is normally `case.mommat2`. For spin-resolved quantities in an SOC calculation, BerryCPT can read three matrix-element files in this order:
+The matrix-element and eigenvalue files used in one BerryCPT calculation
+must originate from the same DFT calculation.
 
-```text
-case.mommat2  case.mommat2up  case.mommat2dn
-```
-
-The first file contains the total matrix elements. The second and third files contain the spin-up and spin-down projected matrix elements.
-
-WIEN2k does not write `case.mommat2` by default. In `case.inop`, enable momentum-matrix output by changing `OFF` to `ON`:
-
-```text
-ON           ON/OFF   WRITEs MME to unit 4
--^
-```
-
-Include enough empty bands and a sufficiently large energy range. In `case.in1` or `case.in1c`, increase and convergence-test `de`:
-
-```text
-K-VECTORS FROM UNIT:4   -9.0      10.0    10   emin / de / nband
-                         ----------^
-```
-
-For SOC calculations, ensure that `Emax` in `case.inso` covers all states required in the intermediate-state sums:
-
-```text
--10 5.0                Emin, Emax
-  ---^
-```
-
-Ensure that the matrix-element range in `case.inop` is at least as large as the corresponding eigenvalue and SOC ranges:
-
-```text
--5.0 3.5 9999         Emin, Emax for matrix elements, NBvalMAX
-       ---^
-```
-
-These numerical values are examples, not universal convergence settings.
-
-The current matrix-element reader uses list-directed parsing for the matrix records. Compatibility with WIEN2k releases before version 20.1 has not been revalidated in the current branch.
-
-### VASP
-
-Generate `WAVEDER` and the matching `EIGENVAL` in the same calculation. Use:
-
-```text
-LOPTICS = .TRUE.
-LPEAD   = .FALSE.
-```
-
-BerryCPT is intended to use the analytic matrix elements obtained with `LPEAD = .FALSE.`. The finite-difference `LPEAD = .TRUE.` mode does not provide the matrix-element content required by the present implementation.
-
-Include enough empty bands and convergence-test `NBANDS`:
-
-```text
-NBANDS = XXXX
-```
-
-A value of approximately three times the number of occupied bands can be used only as an initial estimate. The final value must be established by convergence testing.
-
-Use `_GW` PAW potentials for VASP calculations involving the high-energy unoccupied states that enter the intermediate-state sums. VASP recommends these potentials for optical properties and calculations requiring many states above the Fermi level:
-
-- [Choosing pseudopotentials](https://vasp.at/wiki/Choosing_pseudopotentials)
-- [Available pseudopotentials](https://vasp.at/wiki/Available_pseudopotentials)
-
-The metadata in `WAVEDER` and `EIGENVAL` must agree. BerryCPT checks the numbers of bands, k-points, and spin channels before reading the full files.
+The number of unoccupied bands must be convergence-tested. Contributions
+from remote bands decrease as \(1/(\Delta E)^2\) for Berry curvature, but
+only as \(1/\Delta E\) for OAM and generalized OAM. Consequently, OAM
+normally requires a larger energy window than Berry curvature.
 
 ## Command-line syntax
 
