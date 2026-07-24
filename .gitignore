@@ -8,6 +8,12 @@
 # Executables
 berrycpt
 
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # Others
 .vscode
 .gdb_history
+.nfs*

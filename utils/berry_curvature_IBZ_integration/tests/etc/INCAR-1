@@ -1,0 +1,44 @@
+SYSTEM=SCF AFM (altermagnet)
+NWRITE = 3 # write symm. operations
+ISTART=0     # 0-new job
+ICHARG=2    # 2-Take superposition of atomic charge densities
+PREC=Accurate # normal accuracy
+ALGO = N #N or A
+LREAL= Auto
+
+# XC
+GGA=PE # PBE
+
+# RELAXATION
+EDIFF=1.0E-06
+NELM=999 # maximum number of electronic SC (self-consistency) steps
+
+# STORAGE
+LCHARG=.TRUE.   # do store charge density
+LWAVE=.FALSE.     # store FWs
+LVTOT=.FALSE.     # write LOCPOT file contains the total local potential (in eV)
+LVHAR=.FALSE.     # the file LOCPOT is written without V_xc
+
+# SMEARING
+ISMEAR=0; SIGMA=0.01
+
+# PARALLEL
+NCORE=2          # number of cores in parallel calc.
+KPAR=4           # number of cores per k-point
+
+# SOC
+LNONCOLLINEAR = .TRUE.
+NUPDOWN = 0
+LSORBIT = .TRUE.
+SAXIS =   0 0 1 # (quantisation axis for spin)
+GGA_COMPAT = .FALSE.
+LASPH = .TRUE.
+LMAXMIX = 4
+
+# Magnetism
+ISPIN = 2
+MAGMOM= 0 0 3  0 0 -3  0 0 0  0 0 0
+
+# K-mesh
+KSPACING=0.15 # spacing between k-points in 1/Ang
+KGAMMA=.TRUE.

@@ -1,0 +1,154 @@
+[info] Expected 12 symmetry operations
+
+[info] Extracting symmetry operation 1
+  R =
+[[1 0 0]
+ [0 1 0]
+ [0 0 1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [0. 0. 0.]
+
+[info] Extracting symmetry operation 2
+  R =
+[[-1  0  0]
+ [ 0 -1  0]
+ [ 0  0 -1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [0. 0. 0.]
+
+[info] Extracting symmetry operation 3
+  R =
+[[ 0 -1  0]
+ [ 1 -1  0]
+ [ 0  0  1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [0. 0. 0.]
+
+[info] Extracting symmetry operation 4
+  R =
+[[ 0  1  0]
+ [-1  1  0]
+ [ 0  0 -1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [0. 0. 0.]
+
+[info] Extracting symmetry operation 5
+  R =
+[[-1  1  0]
+ [-1  0  0]
+ [ 0  0  1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [0. 0. 0.]
+
+[info] Extracting symmetry operation 6
+  R =
+[[ 1 -1  0]
+ [ 1  0  0]
+ [ 0  0 -1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [0. 0. 0.]
+
+[info] Extracting symmetry operation 7
+  R =
+[[ 0 -1  0]
+ [-1  0  0]
+ [ 0  0 -1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [ 0.   0.  -0.5]
+
+[info] Extracting symmetry operation 8
+  R =
+[[0 1 0]
+ [1 0 0]
+ [0 0 1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [ 0.   0.  -0.5]
+
+[info] Extracting symmetry operation 9
+  R =
+[[-1  1  0]
+ [ 0  1  0]
+ [ 0  0 -1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [ 0.   0.  -0.5]
+
+[info] Extracting symmetry operation 10
+  R =
+[[ 1 -1  0]
+ [ 0 -1  0]
+ [ 0  0  1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [ 0.   0.  -0.5]
+
+[info] Extracting symmetry operation 11
+  R =
+[[ 1  0  0]
+ [ 1 -1  0]
+ [ 0  0 -1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [ 0.   0.  -0.5]
+
+[info] Extracting symmetry operation 12
+  R =
+[[-1  0  0]
+ [-1  1  0]
+ [ 0  0  1]]
+  non-primitive translation tau_p = [0. 0. 0.]
+  grid translation tau_g         = [ 0.   0.  -0.5]
+
+[info] Parsed 12 symmetry operations from OUTCAR
+Validated symmetry operations: 12
+IBZ representatives: 147
+BerryCPT band-0 records: 147
+Reconstructed full-BZ points: 1352
+Total IBZKPT multiplicity: 1352
+Members reached by multiple operations: 368
+Members failing duplicate-operation consistency: 368
+Maximum pairwise vector difference: 4.925627921003e-03
+Maximum relative spread: 1.995700273204e+00
+Symmetry-reconstructed full-BZ sum:
+-1.530720221077e-14 -3.857334735189e-14 -2.541098841763e-20
+Symmetry-reconstructed full-BZ average:
+-1.132189512631e-17 -2.853058236087e-17 -1.879510977635e-23
+WARNING: duplicate-operation vectors disagree. Their arithmetic mean was used as the symmetry-projected value.
+    1. IBZ 7, representative (0.461538461538 0 0), target (0 -0.461538461538 0), operations [5,7]: max pairwise difference 4.925628e-03 exceeds threshold 1.647278e-08
+       operation   5:  2.169094187069e-03 -5.985934286691e-03 -1.166397450129e-03
+       operation   7: -2.169094187069e-03 -5.985934286691e-03  1.166397450129e-03
+       mean:           0.000000000000e+00 -5.985934286691e-03  0.000000000000e+00
+    2. IBZ 7, representative (0.461538461538 0 0), target (0 0.461538461538 0), operations [6,8]: max pairwise difference 4.925628e-03 exceeds threshold 1.647278e-08
+       operation   6:  2.169094187069e-03 -5.985934286691e-03 -1.166397450129e-03
+       operation   8: -2.169094187069e-03 -5.985934286691e-03  1.166397450129e-03
+       mean:           0.000000000000e+00 -5.985934286691e-03  0.000000000000e+00
+    3. IBZ 7, representative (0.461538461538 0 0), target (-0.461538461538 0 0), operations [2,12]: max pairwise difference 4.925628e-03 exceeds threshold 1.647278e-08
+       operation   2:  4.099424064662e-03  4.871457812353e-03 -1.166397450129e-03
+       operation  12:  6.268518251731e-03  1.114476474338e-03  1.166397450129e-03
+       mean:           5.183971158196e-03  2.992967143345e-03  0.000000000000e+00
+    4. IBZ 7, representative (0.461538461538 0 0), target (-0.461538461538 0.461538461538 0), operations [3,9]: max pairwise difference 4.925628e-03 exceeds threshold 1.647278e-08
+       operation   3: -6.268518251731e-03  1.114476474338e-03 -1.166397450129e-03
+       operation   9: -4.099424064662e-03  4.871457812353e-03  1.166397450129e-03
+       mean:          -5.183971158196e-03  2.992967143345e-03  0.000000000000e+00
+    5. IBZ 7, representative (0.461538461538 0 0), target (0.461538461538 -0.461538461538 0), operations [4,10]: max pairwise difference 4.925628e-03 exceeds threshold 1.647278e-08
+       operation   4: -6.268518251731e-03  1.114476474338e-03 -1.166397450129e-03
+       operation  10: -4.099424064662e-03  4.871457812353e-03  1.166397450129e-03
+       mean:          -5.183971158196e-03  2.992967143345e-03  0.000000000000e+00
+    6. IBZ 7, representative (0.461538461538 0 0), target (0.461538461538 0 0), operations [1,11]: max pairwise difference 4.925628e-03 exceeds threshold 1.647278e-08
+       operation   1:  4.099424064662e-03  4.871457812353e-03 -1.166397450129e-03
+       operation  11:  6.268518251731e-03  1.114476474338e-03  1.166397450129e-03
+       mean:           5.183971158196e-03  2.992967143345e-03  0.000000000000e+00
+    7. IBZ 14, representative (0.153846153846 0.153846153846 0), target (-0.307692307692 0.153846153846 0), operations [3,12]: max pairwise difference 3.905307e-03 exceeds threshold 1.619167e-04
+       operation   3: -3.002636150882e-04 -1.619067464064e+02 -1.929429060213e-03
+       operation  12:  3.002636150882e-04 -1.619067464064e+02  1.929429060213e-03
+       mean:           0.000000000000e+00 -1.619067464064e+02  0.000000000000e+00
+    8. IBZ 14, representative (0.153846153846 0.153846153846 0), target (0.307692307692 -0.153846153846 0), operations [4,11]: max pairwise difference 3.905307e-03 exceeds threshold 1.619167e-04
+       operation   4: -3.002636150882e-04 -1.619067464064e+02 -1.929429060213e-03
+       operation  11:  3.002636150882e-04 -1.619067464064e+02  1.929429060213e-03
+       mean:           0.000000000000e+00 -1.619067464064e+02  0.000000000000e+00
+    9. IBZ 14, representative (0.153846153846 0.153846153846 0), target (-0.153846153846 -0.153846153846 0), operations [2,7]: max pairwise difference 3.905307e-03 exceeds threshold 1.619167e-04
+       operation   2: -1.402152053147e+02  8.095363323910e+01 -1.929429060213e-03
+       operation   7: -1.402155055784e+02  8.095311316727e+01  1.929429060213e-03
+       mean:          -1.402153554466e+02  8.095337320319e+01  0.000000000000e+00
+   10. IBZ 14, representative (0.153846153846 0.153846153846 0), target (-0.153846153846 0.307692307692 0), operations [6,9]: max pairwise difference 3.905307e-03 exceeds threshold 1.619167e-04
+       operation   6:  1.402155055784e+02  8.095311316727e+01 -1.929429060213e-03
+       operation   9:  1.402152053147e+02  8.095363323910e+01  1.929429060213e-03
+       mean:           1.402153554466e+02  8.095337320319e+01  0.000000000000e+00
+Wrote reconstructed full-BZ data to tests/expected_output/reconstructed_bcurv_fbz_legacy.dat

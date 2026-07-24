@@ -72,7 +72,7 @@ Instructions for generating the required matrix-element files are available
 on the Wiki:
 
 - [Generating WIEN2k `case.mommat2` files](https://github.com/rubel75/mstar/wiki/Generate-case.mommat2-file-in-WIEN2k)
-- [Generating WIEN2k `case.mommat2` and VASP `WAVEDER` files](https://github.com/rubel75/mstar/wiki)
+- [Generating VASP `WAVEDER` files](https://github.com/rubel75/mstar/wiki/Generate-WAVEDER-file-in-VASP)
 
 The matrix-element and eigenvalue files used in one BerryCPT calculation
 must originate from the same DFT calculation.
