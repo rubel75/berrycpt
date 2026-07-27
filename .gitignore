@@ -17,3 +17,5 @@ __pycache__/
 .vscode
 .gdb_history
 .nfs*
+version_mod.f90
+version_mod.f90.tmp

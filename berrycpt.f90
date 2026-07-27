@@ -149,6 +149,7 @@ PROGRAM berrycpt
 
 !! Variables
 
+USE version_mod, ONLY : version_string
 USE write_progress_mod, ONLY: initialize_progress, write_progress
 USE precision_mod, ONLY: sp, dp
 USE command_line_args_mod, ONLY: command_line_args
@@ -276,6 +277,11 @@ LOGICAL :: &
     soc_sp_resolv_pij, & ! separate WIEN2k spin-up/down matrices are supplied
     dftocc, &             ! use occupations read from the DFT calculation
     soc                   ! WIEN2k calculation includes spin-orbit coupling
+
+
+!! Print version
+
+WRITE(*,'(A)') trim(version_string)
 
 !! Get command line input arguments
 
@@ -682,5 +688,6 @@ WRITE(*,'(A)') &
     ' momentum from DFT calculations [Computer software].'
 WRITE(*,'(A)') &
     ' https://github.com/rubel75/berrycpt'
+WRITE(*,'(A)') trim(version_string)
 
 END PROGRAM berrycpt
