@@ -281,7 +281,7 @@ LOGICAL :: &
 
 !! Print version
 
-WRITE(*,'(A)') trim(version_string)
+WRITE(*,'(A)') TRIM(version_string)
 
 !! Get command line input arguments
 
@@ -688,6 +688,6 @@ WRITE(*,'(A)') &
     ' momentum from DFT calculations [Computer software].'
 WRITE(*,'(A)') &
     ' https://github.com/rubel75/berrycpt'
-WRITE(*,'(A)') trim(version_string)
+WRITE(*,'(A)') TRIM(version_string)
 
 END PROGRAM berrycpt
