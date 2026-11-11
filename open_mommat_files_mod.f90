@@ -8,14 +8,14 @@ PUBLIC :: open_mommat_files, close_mommat_files
 CONTAINS
 
 SUBROUTINE open_mommat_files( &
-        fnameinp, fnameinpUP, fnameinpDN, soc_sp_resolv_pij, &
+        fnameinp, fnameinpUP, fnameinpDN, soc_sp_resolv_vij, &
         unitinp, unitinpUP, unitinpDN)
 
 ! Names of the matrix-element files
 CHARACTER(LEN=*), INTENT(IN) :: fnameinp, fnameinpUP, fnameinpDN
 
 ! Read spin-resolved WIEN2k matrix-element files
-LOGICAL, INTENT(IN) :: soc_sp_resolv_pij
+LOGICAL, INTENT(IN) :: soc_sp_resolv_vij
 
 ! File units for the matrix-element files
 INTEGER, INTENT(OUT) :: unitinp, unitinpUP, unitinpDN
@@ -28,7 +28,7 @@ CALL open_single_mommat_file( &
     fnameinp, & ! in
     unitinp)    ! out
 
-IF (soc_sp_resolv_pij) THEN
+IF (soc_sp_resolv_vij) THEN
     CALL open_single_mommat_file( &
         fnameinpUP, & ! in
         unitinpUP)    ! out

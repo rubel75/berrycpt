@@ -1,7 +1,8 @@
 PROGRAM berrycpt
 ! BerryCPT calculates band-resolved Berry curvature, orbital angular
 ! momentum, and generalized orbital-angular-momentum matrices from
-! momentum or wave-function-derivative matrix elements.
+! velocity matrix elements obtained from WIEN2k momentum matrix elements
+! or from VASP wave-function-derivative matrix elements.
 !
 ! Supported input:
 !
@@ -82,6 +83,10 @@ PROGRAM berrycpt
 !
 ! corresponding to Voigt indices 4, 5, and 6. Berry curvature is
 ! reported in bohr^2. Orbital angular momentum is reported in hbar.
+! Wave vectors include the factor 2*pi, so the integral of Omega_xy
+! over a closed two-dimensional Brillouin zone equals 2*pi times the
+! Chern number. The equations implemented are written out in README.md
+! in the same form as in the accompanying paper.
 !
 ! Existing output files are replaced. Each output file contains a
 ! detailed header describing its columns, k-point organization,
@@ -204,9 +209,9 @@ INTEGER :: &
 INTEGER :: &
     ispin, &      ! current spin-channel index
     ikpt, &       ! current k-point index
-    i, &          ! target-band index used to construct pijSPIN
-    j, &          ! transition-band index used to construct pijSPIN
-    alpha, &      ! Cartesian component used to construct pijSPIN
+    i, &          ! target-band index used to construct vijSPIN
+    j, &          ! transition-band index used to construct vijSPIN
+    alpha, &      ! Cartesian component used to construct vijSPIN
     nbki, &       ! number of available bands at the current k-point and spin
     nbcderki      ! number of target bands at the current k-point and spin
 
@@ -253,14 +258,14 @@ REAL(KIND=sp), ALLOCATABLE :: &
 
 ! Matrix elements at the current k-point
 COMPLEX(KIND=sp), ALLOCATABLE :: &
-    pij(:,:,:), &      ! total matrix elements (component, target, transition) [a.u.]
-    pijUP(:,:,:), &    ! spin-up-projected matrix elements (WIEN2k only) [a.u.]
-    pijDN(:,:,:), &    ! spin-down-projected matrix elements (WIEN2k only) [a.u.]
-    pijSPIN(:,:,:)     ! pijUP-pijDN used for spin Berry curvature [a.u.]
+    vij(:,:,:), &      ! total velocity matrix elements (component, target, transition) [a.u.]
+    vijUP(:,:,:), &    ! spin-up diagonal velocity matrix elements (WIEN2k only) [a.u.]
+    vijDN(:,:,:), &    ! spin-down diagonal velocity matrix elements (WIEN2k only) [a.u.]
+    vijSPIN(:,:,:)     ! vijUP-vijDN used for spin Berry curvature [a.u.]
 
 ! Complete VASP matrix-element data
 COMPLEX(KIND=sp), ALLOCATABLE :: &
-    pijks(:,:,:,:,:)   ! (component, target, transition, k-point, spin) [a.u.]
+    vijks(:,:,:,:,:)   ! VASP velocity matrix elements (component, target, transition, k-point, spin) [a.u.]
 
 ! Band-resolved Berry curvature and orbital angular momentum
 REAL(KIND=dp), ALLOCATABLE :: &
@@ -274,7 +279,7 @@ COMPLEX(KIND=dp), ALLOCATABLE :: &
 ! Calculation mode
 LOGICAL :: &
     wien2k, &            ! true for WIEN2k input and false for VASP input
-    soc_sp_resolv_pij, & ! separate WIEN2k spin-up/down matrices are supplied
+    soc_sp_resolv_vij, & ! separate WIEN2k spin-up/down matrices are supplied
     dftocc, &             ! use occupations read from the DFT calculation
     soc                   ! WIEN2k calculation includes spin-orbit coupling
 
@@ -290,9 +295,9 @@ CALL command_line_args( &
 WRITE(*,'(A)') ' Command line arguments were initialized successfully.'
 
 ! Three matrix-element files indicate spin-resolved WIEN2k SOC input
-soc_sp_resolv_pij = LEN_TRIM(fnameinpUP) > 0 .AND. LEN_TRIM(fnameinpDN) > 0
+soc_sp_resolv_vij = LEN_TRIM(fnameinpUP) > 0 .AND. LEN_TRIM(fnameinpDN) > 0
 ! Distinguish from SOC calculation without spin-resolved matrix elements
-soc = soc_sp_resolv_pij .OR. filename_contains_energyso(fnameene)
+soc = soc_sp_resolv_vij .OR. filename_contains_energyso(fnameene)
 
 !! WIEN2k or VASP?
 
@@ -305,7 +310,7 @@ ELSE
 END IF
 IF (fnamebase == 'WAVEDER' .OR. fnamebase == 'WAVEDERF') THEN ! VASP
     wien2k = .FALSE.
-    IF (soc_sp_resolv_pij) THEN
+    IF (soc_sp_resolv_vij) THEN
         WRITE(*,*) 'Three matrix-element files can be used only with WIEN2k.'
         WRITE(*,*) 'Check execution options with "berrycpt -h"'
         ERROR STOP
@@ -324,7 +329,7 @@ ELSE ! WIEN2k
     WRITE(*,*) 'Assumed WIEN2k calculation based on the input file name.'
     WRITE(*,*) '(If you would like to read a VASP file, its file name should'
     WRITE(*,*) 'be WAVEDER or WAVEDERF.)'
-    IF (soc_sp_resolv_pij) THEN
+    IF (soc_sp_resolv_vij) THEN
         WRITE(*,*) 'WIEN2k spin-resolved momentum matrix elements will be read'
         WRITE(*,'(A)') ' from the files: '//TRIM(fnameinpUP)//' and '// &
             TRIM(fnameinpDN)
@@ -335,7 +340,7 @@ END IF
 
 CALL validate_input_files( &
     fnameinp, fnameinpUP, fnameinpDN, fnameene, fnameocc, & ! in
-    wien2k, soc_sp_resolv_pij, dftocc)                                 ! in
+    wien2k, soc_sp_resolv_vij, dftocc)                                 ! in
 
 !! Read input metadata
 
@@ -409,8 +414,8 @@ CALL find_degenerate_groups( &
 IF (.NOT. wien2k) THEN
     CALL read_mommat_pij_vasp( &
         fnameinp, nstot, nktot, nbcder, nb, ene, & ! in
-        pijks, &  ! out, allocated as
-                ! pijks(3,nbcder,nb,nktot,nstot)
+        vijks, &  ! out, allocated as
+                ! vijks(3,nbcder,nb,nktot,nstot)
                 ! = (Cartesian component, target band, transition band,
                 !    k-point, spin)
         dEijks) ! out, allocated as
@@ -423,7 +428,7 @@ END IF
 IF (wien2k) THEN
     CALL open_mommat_files( &
         fnameinp, fnameinpUP, fnameinpDN, & ! in
-        soc_sp_resolv_pij, &                ! in
+        soc_sp_resolv_vij, &                ! in
         unitinp, &                          ! out, connected unit for the total file
         unitinpUP, &                        ! out, connected spin-up unit or -1
         unitinpDN)                          ! out, connected spin-down unit or -1
@@ -442,7 +447,7 @@ DO ispin = 1, nstot
         charspin)                         ! out
 
     CALL open_output_files( &
-        wien2k, soc_sp_resolv_pij, charspin, & ! in
+        wien2k, soc_sp_resolv_vij, charspin, & ! in
         output_units)           ! out, scalar derived type;
                                 ! inactive unit fields remain -1
 
@@ -457,22 +462,22 @@ DO ispin = 1, nstot
             ! Read one k-point from the already-open sequential files.
             CALL read_mommat_pij_wien2k_kpoint( &
                 unitinp, unitinpUP, unitinpDN, &           ! in
-                soc_sp_resolv_pij, ikpt, nbki, nbcderki, & ! in
-                pij, &  ! out, allocated as pij(3,nbcderki,nbki)
+                soc_sp_resolv_vij, ikpt, nbki, nbcderki, & ! in
+                vij, &  ! out, allocated as vij(3,nbcderki,nbki)
                         !      = (Cartesian component, target band, transition band)
                 dEij, & ! out, allocated as dEij(nbcderki,nbki)
                         !      = E_transition-E_target [Ha]
-                pijUP, &! out, allocated as pijUP(3,nbcderki,nbki)
-                        !      only when soc_sp_resolv_pij is true
-                pijDN)  ! out, allocated as pijDN(3,nbcderki,nbki)
-                        !      only when soc_sp_resolv_pij is true
+                vijUP, &! out, allocated as vijUP(3,nbcderki,nbki)
+                        !      only when soc_sp_resolv_vij is true
+                vijDN)  ! out, allocated as vijDN(3,nbcderki,nbki)
+                        !      only when soc_sp_resolv_vij is true
         ELSE
             ! Extract the current VASP matrix elements and energy differences.
             ALLOCATE( &
-                pij(3,nbcderki,nbki), &
+                vij(3,nbcderki,nbki), &
                 dEij(nbcderki,nbki))
 
-            pij = pijks(:,1:nbcderki,1:nbki,ikpt,ispin)
+            vij = vijks(:,1:nbcderki,1:nbki,ikpt,ispin)
             dEij = dEijks(1:nbcderki,1:nbki,ikpt,ispin)
         END IF
 
@@ -481,7 +486,7 @@ DO ispin = 1, nstot
         CALL calculate_bcurv_kpoint( &
             nbki, nbcderki, &                       ! in
             dg_groupk(1:nbki,ikpt,ispin), &         ! in
-            pij, pij, dEij, &                       ! in
+            vij, vij, dEij, &                       ! in
             bcurv)                                  ! out, allocated as
                                                     ! bcurv(nbcderki,3)
                                                     ! = (target band, yz/zx/xy)
@@ -496,17 +501,17 @@ DO ispin = 1, nstot
 
         !! Spin-resolved Berry-curvature quantities
 
-        IF (wien2k .AND. soc_sp_resolv_pij) THEN
+        IF (wien2k .AND. soc_sp_resolv_vij) THEN
 
             !! Spin-up contribution to the Berry curvature
             !
-            ! First operator:  pijA = pijUP
-            ! Second operator: pijB = pij
+            ! First operator:  vijA = vijUP
+            ! Second operator: vijB = vij
 
             CALL calculate_bcurv_kpoint( &
                 nbki, nbcderki, &                         ! in
                 dg_groupk(1:nbki,ikpt,ispin), &           ! in
-                pijUP, pij, dEij, &                       ! in
+                vijUP, vij, dEij, &                       ! in
                 bcurv)                                    ! out
 
             CALL write_bcurv_kpoint( &
@@ -518,13 +523,13 @@ DO ispin = 1, nstot
 
             !! Spin-down contribution to the Berry curvature
             !
-            ! First operator:  pijA = pijDN
-            ! Second operator: pijB = pij
+            ! First operator:  vijA = vijDN
+            ! Second operator: vijB = vij
 
             CALL calculate_bcurv_kpoint( &
                 nbki, nbcderki, &                         ! in
                 dg_groupk(1:nbki,ikpt,ispin), &           ! in
-                pijDN, pij, dEij, &                       ! in
+                vijDN, vij, dEij, &                       ! in
                 bcurv)                                    ! out
 
             CALL write_bcurv_kpoint( &
@@ -536,20 +541,20 @@ DO ispin = 1, nstot
 
             !! Sigma_z-normalized spin Berry curvature
             !
-            ! First operator:  pijA = pijUP - pijDN
-            ! Second operator: pijB = pij
+            ! First operator:  vijA = vijUP - vijDN
+            ! Second operator: vijB = vij
             !
             ! Construct the first-operator matrix explicitly. Scalar loops are
             ! used so that the subtraction does not require an array-expression
             ! temporary.
 
-            ALLOCATE(pijSPIN(3,nbcderki,nbki))
+            ALLOCATE(vijSPIN(3,nbcderki,nbki))
 
             DO j = 1, nbki
                 DO i = 1, nbcderki
                     DO alpha = 1, 3
-                        pijSPIN(alpha,i,j) = &
-                            pijUP(alpha,i,j) - pijDN(alpha,i,j)
+                        vijSPIN(alpha,i,j) = &
+                            vijUP(alpha,i,j) - vijDN(alpha,i,j)
                     END DO
                 END DO
             END DO
@@ -557,7 +562,7 @@ DO ispin = 1, nstot
             CALL calculate_bcurv_kpoint( &
                 nbki, nbcderki, &                         ! in
                 dg_groupk(1:nbki,ikpt,ispin), &           ! in
-                pijSPIN, pij, dEij, &                     ! in
+                vijSPIN, vij, dEij, &                     ! in
                 bcurv)                                    ! out
 
             CALL write_bcurv_kpoint( &
@@ -566,22 +571,22 @@ DO ispin = 1, nstot
                 occup(1:nbcderki,ikpt,ispin), bcurv)             ! in
 
             DEALLOCATE(bcurv)
-            DEALLOCATE(pijSPIN)
+            DEALLOCATE(vijSPIN)
 
         END IF
 
         !! Ordinary orbital angular momentum
 
-        ! The ordinary OAM uses the total momentum matrix elements in both
+        ! The ordinary OAM uses the total velocity matrix elements in both
         ! operator positions:
         !
-        !     pijA = pij
-        !     pijB = pij
+        !     vijA = vij
+        !     vijB = vij
 
         CALL calculate_oam_kpoint( &
             nbki, nbcderki, &                       ! in
             dg_groupk(1:nbki,ikpt,ispin), &         ! in
-            pij, pij, dEij, &                       ! in
+            vij, vij, dEij, &                       ! in
             oam)                                    ! out, allocated as
                                                     ! oam(nbcderki,3)
                                                     ! = (target band, yz/zx/xy)
@@ -595,23 +600,23 @@ DO ispin = 1, nstot
 
         !! Spin orbital angular momentum
 
-        IF (wien2k .AND. soc_sp_resolv_pij) THEN
+        IF (wien2k .AND. soc_sp_resolv_vij) THEN
 
             ! The spin OAM implemented here is the spin-up-projected OAM.
             ! Unlike the spin-related Berry-curvature quantities, it uses the
-            ! spin-up momentum matrix elements in both operator positions:
+            ! spin-up velocity matrix elements in both operator positions:
             !
-            !     pijA = pijUP
-            !     pijB = pijUP
+            !     vijA = vijUP
+            !     vijB = vijUP
             !
-            ! It is therefore not calculated using pijUP-pijDN, nor does it
-            ! use the total momentum matrix pij in the second operator
+            ! It is therefore not calculated using vijUP-vijDN, nor does it
+            ! use the total velocity matrix vij in the second operator
             ! position.
 
             CALL calculate_oam_kpoint( &
                 nbki, nbcderki, &                         ! in
                 dg_groupk(1:nbki,ikpt,ispin), &           ! in
-                pijUP, pijUP, dEij, &                     ! in
+                vijUP, vijUP, dEij, &                     ! in
                 oam)                                      ! out
 
             CALL write_oam_kpoint( &
@@ -628,7 +633,7 @@ DO ispin = 1, nstot
         CALL calculate_goam_kpoint( &
             nbki, nbcderki, &                   ! in
             dg_groupk(1:nbki,ikpt,ispin), &     ! in
-            pij, pij, dEij, &                   ! in
+            vij, vij, dEij, &                   ! in
             goam)                               ! out, allocated as
                                                 ! goam(nbcderki,nbcderki,3)
                                                 ! = <u_i|L_c|u_j>, with
@@ -645,10 +650,10 @@ DO ispin = 1, nstot
 
         !! Release current k-point matrices
 
-        IF (ALLOCATED(pij)) DEALLOCATE(pij)
+        IF (ALLOCATED(vij)) DEALLOCATE(vij)
         IF (ALLOCATED(dEij)) DEALLOCATE(dEij)
-        IF (ALLOCATED(pijUP)) DEALLOCATE(pijUP)
-        IF (ALLOCATED(pijDN)) DEALLOCATE(pijDN)
+        IF (ALLOCATED(vijUP)) DEALLOCATE(vijUP)
+        IF (ALLOCATED(vijDN)) DEALLOCATE(vijDN)
 
         CALL write_progress( &
             ispin, nstot, ikpt, nktot) ! in
@@ -669,7 +674,7 @@ END IF
 
 !! Release complete VASP matrices
 
-IF (ALLOCATED(pijks)) DEALLOCATE(pijks)
+IF (ALLOCATED(vijks)) DEALLOCATE(vijks)
 IF (ALLOCATED(dEijks)) DEALLOCATE(dEijks)
 
 WRITE(*,'(A)') ' Completed the main spin and k-point loops.'
@@ -679,15 +684,13 @@ CALL write_output_summary()
 WRITE(*,'(/,A)') &
     ' Please cite BerryCPT in publications and other scholarly work'
 WRITE(*,'(A)') &
-    ' that use this software or results generated with it.'
+    ' that use this software or results generated with it, giving the'
 WRITE(*,'(A)') &
-    ' Suggested citation:'
-    WRITE(*,'(A)') &
-    ' Rubel, O. (2024). BerryCPT: Berry curvature and orbital angular'
+    ' Git commit from which the results originated. Suggested citation:'
 WRITE(*,'(A)') &
-    ' momentum from DFT calculations [Computer software].'
+    ' Rubel, O. (2024). BerryCPT: Calculates Berry curvature using perturbation'
 WRITE(*,'(A)') &
-    ' https://github.com/rubel75/berrycpt'
-WRITE(*,'(A)') TRIM(version_string)
+    ' theory [Computer software]. https://github.com/rubel75/berrycpt,'
+WRITE(*,'(A)') ' '//TRIM(version_string)//'.'
 
 END PROGRAM berrycpt

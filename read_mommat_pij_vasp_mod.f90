@@ -12,7 +12,7 @@ CONTAINS
 
 SUBROUTINE read_mommat_pij_vasp( &
         fnameinp, nstot, nktot, nbcder, nb, ene, &
-        pijks, dEijks)
+        vijks, dEijks)
 
 ! Name of the VASP WAVEDER file
 CHARACTER(LEN=*), INTENT(IN) :: fnameinp
@@ -27,9 +27,9 @@ INTEGER, INTENT(IN) :: &
 ! Band-, k-point-, and spin-dependent eigenvalues [Ha]
 REAL(KIND=sp), INTENT(IN) :: ene(:,:,:)
 
-! Rectangular momentum-matrix elements [a.u.]
-! pijks(:,i,j,k,s) stores <i|p|j>, where i <= nbcder and j <= nb.
-COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: pijks(:,:,:,:,:)
+! Rectangular velocity matrix elements [a.u.]
+! vijks(:,i,j,k,s) stores <i|v|j>, where i <= nbcder and j <= nb.
+COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: vijks(:,:,:,:,:)
 
 ! Rectangular energy differences [Ha]
 ! dEijks(i,j,k,s) stores E_j-E_i, where i <= nbcder and j <= nb.
@@ -60,7 +60,7 @@ REAL(KIND=sp) :: energy_difference
 
 ! Memory required by the returned arrays [bytes]
 INTEGER(KIND=int64) :: &
-    pijks_bytes, &
+    vijks_bytes, &
     dEijks_bytes
 
 ! Unit conversion from Angstrom to bohr
@@ -124,35 +124,36 @@ END IF
 
 CALL estimate_output_memory( &
     nstot, nktot, nbcder, nb, & ! in
-    pijks_bytes, dEijks_bytes)   ! out
+    vijks_bytes, dEijks_bytes)   ! out
 
 CALL report_output_memory( &
-    pijks_bytes, dEijks_bytes) ! in
+    vijks_bytes, dEijks_bytes) ! in
 
 ALLOCATE( &
-    pijks(3,nbcder,nb,nktot,nstot), &
+    vijks(3,nbcder,nb,nktot,nstot), &
     STAT=ierr, ERRMSG=iomsg)
 IF (ierr /= 0) THEN
     CLOSE(unitinp)
     CALL allocation_error( &
-        fnameinp, 'pijks', pijks_bytes, iomsg) ! in
+        fnameinp, 'vijks', vijks_bytes, iomsg) ! in
 END IF
 
 ALLOCATE( &
     dEijks(nbcder,nb,nktot,nstot), &
     STAT=ierr, ERRMSG=iomsg)
 IF (ierr /= 0) THEN
-    DEALLOCATE(pijks)
+    DEALLOCATE(vijks)
     CLOSE(unitinp)
     CALL allocation_error( &
         fnameinp, 'dEijks', dEijks_bytes, iomsg) ! in
 END IF
 
-! WAVEDER stores D^a_ji with the all-band index j first and the
-! derivative-band index i second. Read the complete record directly into
-! pijks(:,i,j,k,s), avoiding a second full-size derivative-overlap array.
+! WAVEDER stores D^a_ji = <u_j| -i d/dk_a u_i> with the all-band (bra)
+! index j first and the derivative-band (ket) index i second (see the
+! convention notes below). Read the complete record directly into
+! vijks(:,i,j,k,s), avoiding a second full-size derivative-overlap array.
 READ(unitinp,IOSTAT=ierr,IOMSG=iomsg) &
-    (((((pijks(idim,iband_cder,iband,ikpt,ispin), &
+    (((((vijks(idim,iband_cder,iband,ikpt,ispin), &
         iband = 1, nb), &
         iband_cder = 1, nbcder), &
         ikpt = 1, nktot), &
@@ -172,10 +173,59 @@ IF (ierr /= 0) THEN
         'Unable to close the WAVEDER file: '//TRIM(iomsg)) ! in
 END IF
 
-! Convert D^a_ji [Angstrom] to p^a_ij [a.u.] using Hermiticity:
+! Convert D^a_ji [Angstrom] to v^a_ij [a.u.] using Hermiticity.
 !
-!   p^a_ji = (E_i-E_j) D^a_ji
-!   p^a_ij = CONJG(p^a_ji)
+! Convention of WAVEDER
+! ---------------------
+! The two available descriptions of WAVEDER differ by a factor -i.
+!
+! (1) VASP wiki, page "WAVEDER" (https://www.vasp.at/wiki/index.php/WAVEDER),
+!     revision oldid=35849, last edited 15 April 2026, read 11 November 2026.
+!     It defines the stored element as <u_n'|d u_n/d k_a> in Angstrom,
+!     without a factor -i, with the array order (n', n, k, a).
+!
+! (2) VASP 6.6.1 source, linear_optics.F, module mlr_optic.
+!     The module header (lines 13-14 and 87-88) defines
+!         CDER_BETWEEN_STATES(m,n,k,s,a) = <u_m| -i d/dk_a u_n>
+!                                        = -<u_m|r_a|u_n>,
+!     LRF_EPSILON_MELS (lines 737 and 751) builds the first-order change
+!     -i d/dk u_n = -r u_n and its overlaps with all bands m, and INPROD_W
+!     (line 1115) stores CHAM(j,i) = <W0(j)|W1(i)>, so the bra band m
+!     (1:NB_TOT) is the first index and the ket band n (1:NBANDS_CDER) the
+!     second. WRT_CDER_BETWEEN_STATES (line 3118) writes the whole array
+!     CDER_BETWEEN_STATES(NB_TOT, NBANDS_CDER, NKPTS, ISPIN, 3) as one
+!     record. The routine LRF_RPHI0, which solves for the first-order
+!     change, is in another source file and was not inspected.
+!
+! BerryCPT follows the source code (2). The record is read here as
+!
+!   D^a_ji = <u_j| -i d/dk_a u_i> = -r^a_ji,
+!
+! with j = iband (all bands) and i = iband_cder (i <= NBANDS_CDER), in
+! Angstrom.
+!
+! Velocity matrix elements
+! ------------------------
+! With the dipole matrix element r^a_ji = i <u_j|d u_i/d k_a> = -D^a_ji,
+! the expression used in README.md and in the paper,
+!
+!   v^a_ji = (i/hbar) (E_j - E_i) r^a_ji,
+!
+! becomes
+!
+!   v^a_ji = (i/hbar) (E_i - E_j) D^a_ji,
+!   v^a_ij = CONJG(v^a_ji) = (i/hbar) (E_j - E_i) CONJG(D^a_ji).
+!
+! The result is in Hartree atomic units (hbar = m0 = 1), with energies in
+! Ha and D converted from Angstrom to bohr. Because the derivative overlap
+! includes the nonlocal PAW terms, these are velocity matrix elements, not
+! momentum matrix elements divided by m0.
+!
+! Every element carries its proper phase. BerryCPT releases up to commit
+! a564a1e omitted the factor i. That omission cancelled in the
+! band-diagonal products v_a(n,l) v_b(l,n) used for the Berry curvature
+! and OAM and in the effective matrices of contiguous degenerate blocks,
+! but not in the off-diagonal elements of the generalized OAM matrix.
 !
 ! Only the rectangular block i <= nbcder is retained. For pairs entirely
 ! within that block, the reverse element and energy difference are set
@@ -185,7 +235,7 @@ dEijks = 0.0_sp
 DO ispin = 1, nstot
     DO ikpt = 1, nktot
         DO iband_cder = 1, nbcder
-            pijks(:,iband_cder,iband_cder,ikpt,ispin) = &
+            vijks(:,iband_cder,iband_cder,ikpt,ispin) = &
                 CMPLX(0.0_sp,0.0_sp,KIND=sp)
 
             DO iband = iband_cder + 1, nb
@@ -196,25 +246,26 @@ DO ispin = 1, nstot
                     energy_difference
 
                 DO idim = 1, 3
-                    pijks(idim,iband_cder,iband,ikpt,ispin) = &
-                        -angstrom_to_bohr * energy_difference * &
-                        CONJG(pijks(idim,iband_cder,iband,ikpt,ispin))
+                    vijks(idim,iband_cder,iband,ikpt,ispin) = &
+                        CMPLX(0.0_sp,1.0_sp,KIND=sp) * &
+                        angstrom_to_bohr * energy_difference * &
+                        CONJG(vijks(idim,iband_cder,iband,ikpt,ispin))
                 END DO
 
                 IF (iband <= nbcder) THEN
                     dEijks(iband,iband_cder,ikpt,ispin) = &
                         -energy_difference
-                    pijks(:,iband,iband_cder,ikpt,ispin) = &
-                        CONJG(pijks(:,iband_cder,iband,ikpt,ispin))
+                    vijks(:,iband,iband_cder,ikpt,ispin) = &
+                        CONJG(vijks(:,iband_cder,iband,ikpt,ispin))
                 END IF
             END DO
         END DO
     END DO
 END DO
 
-WRITE(*,'(A)') ' VASP momentum matrix elements were read successfully.'
+WRITE(*,'(A)') ' VASP velocity matrix elements were read successfully.'
 WRITE(*,'(A,5(I0,1X),A)') &
-    ' Shape of pijks = (', SHAPE(pijks), &
+    ' Shape of vijks = (', SHAPE(vijks), &
     ') (dim_3D, nbands_smaller, nbands_larger, nkpts, nspins)'
 WRITE(*,'(A,4(I0,1X),A)') &
     ' Shape of dEijks = (', SHAPE(dEijks), &
@@ -260,14 +311,14 @@ END SUBROUTINE validate_waveder_kinds
 
 SUBROUTINE estimate_output_memory( &
         nstot, nktot, nbcder, nb, &
-        pijks_bytes, dEijks_bytes)
+        vijks_bytes, dEijks_bytes)
 
 ! WAVEDER dimensions
 INTEGER, INTENT(IN) :: nstot, nktot, nbcder, nb
 
 ! Memory required by the returned arrays [bytes]
 INTEGER(KIND=int64), INTENT(OUT) :: &
-    pijks_bytes, &
+    vijks_bytes, &
     dEijks_bytes
 
 ! Number of band-pair, k-point, and spin entries
@@ -287,18 +338,18 @@ complex_sp_bytes = INT( &
     KIND=int64)
 real_sp_bytes = INT(STORAGE_SIZE(0.0_sp) / 8,KIND=int64)
 
-pijks_bytes = 3_int64 * matrix_entries * complex_sp_bytes
+vijks_bytes = 3_int64 * matrix_entries * complex_sp_bytes
 dEijks_bytes = matrix_entries * real_sp_bytes
 
 END SUBROUTINE estimate_output_memory
 
 
 SUBROUTINE report_output_memory( &
-        pijks_bytes, dEijks_bytes)
+        vijks_bytes, dEijks_bytes)
 
 ! Memory required by the returned arrays [bytes]
 INTEGER(KIND=int64), INTENT(IN) :: &
-    pijks_bytes, &
+    vijks_bytes, &
     dEijks_bytes
 
 ! Combined memory required by the returned arrays [bytes]
@@ -307,11 +358,11 @@ INTEGER(KIND=int64) :: total_bytes
 ! Conversion from bytes to gibibytes
 REAL(KIND=dp), PARAMETER :: bytes_per_gib = 1024.0_dp**3
 
-total_bytes = pijks_bytes + dEijks_bytes
+total_bytes = vijks_bytes + dEijks_bytes
 
-WRITE(*,'(/,A)') ' VASP momentum-matrix memory estimate'
+WRITE(*,'(/,A)') ' VASP velocity-matrix memory estimate'
 WRITE(*,'(A,F12.3,A)') &
-    ' pijks   = ', REAL(pijks_bytes,KIND=dp) / bytes_per_gib, ' GiB'
+    ' vijks   = ', REAL(vijks_bytes,KIND=dp) / bytes_per_gib, ' GiB'
 WRITE(*,'(A,F12.3,A)') &
     ' dEijks  = ', REAL(dEijks_bytes,KIND=dp) / bytes_per_gib, ' GiB'
 WRITE(*,'(A,F12.3,A)') &
@@ -335,7 +386,7 @@ INTEGER(KIND=int64), INTENT(IN) :: requested_bytes
 ! Conversion from bytes to gibibytes
 REAL(KIND=dp), PARAMETER :: bytes_per_gib = 1024.0_dp**3
 
-WRITE(*,'(/,A)') ' ERROR: Unable to allocate a VASP momentum-matrix array'
+WRITE(*,'(/,A)') ' ERROR: Unable to allocate a VASP velocity-matrix array'
 WRITE(*,'(A)') ' File = '//TRIM(fnameinp)
 WRITE(*,'(A)') ' Array = '//TRIM(array_name)
 WRITE(*,'(A,F12.3,A)') &
@@ -385,7 +436,7 @@ SUBROUTINE waveder_file_error( &
 ! WAVEDER file name and error description
 CHARACTER(LEN=*), INTENT(IN) :: fnameinp, message
 
-WRITE(*,'(/,A)') ' ERROR: Unable to read VASP momentum matrix elements'
+WRITE(*,'(/,A)') ' ERROR: Unable to read VASP derivative matrix elements'
 WRITE(*,'(A)') ' File = '//TRIM(fnameinp)
 WRITE(*,'(A)') ' '//TRIM(message)
 ERROR STOP 1

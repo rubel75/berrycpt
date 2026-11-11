@@ -10,9 +10,37 @@ PUBLIC :: read_mommat_pij_wien2k_kpoint
 CONTAINS
 
 SUBROUTINE read_mommat_pij_wien2k_kpoint( &
-        unitinp, unitinpUP, unitinpDN, soc_sp_resolv_pij, &
+        unitinp, unitinpUP, unitinpDN, soc_sp_resolv_vij, &
         ikpt, nbki, nbcderki, &
-        pij, dEij, pijUP, pijDN)
+        vij, dEij, vijUP, vijDN)
+
+! Convention of case.mommat2[up/dn]
+! ---------------------------------
+! Taken from the WIEN2k 24.1 source of OPTIC (SRC_optic):
+!
+!   sph-UP.F, lines 690-709: the spin blocks OPMX(:,s), s = 1, 2, hold
+!   <u_NB1|grad|u_NB2> restricted to the up-up and down-down spinor
+!   components (zero-initialized, so s = 2 stays zero without SOC), and
+!   the total is OPMATX = -i (OPMX(:,1) + OPMX(:,2)) = <u_NB1|-i grad|u_NB2>.
+!   Line 715 documents the same quantity as <j,k|-i*grad|j',k>.
+!   The interstitial part is added in planew.F, line 282.
+!
+!   outmat.f, lines 146-154: each record (NB1,NB2) with NB1 <= NB2 holds
+!   the bra band NB1, the ket band NB2, the three Cartesian components
+!   of <u_NB1|-i grad|u_NB2>, and E(NB2) - E(NB1) in Ry. The total is
+!   written to unit 4 (case.mommat2). With SOC, the spin blocks are
+!   written as -i OPMX(:,1) and -i OPMX(:,2) to units 32 and 33
+!   (case.mommat2up and case.mommat2dn of an OPTIC run with SOC).
+!   Without SOC, a spin-polarized calculation writes each spin channel
+!   to its own unit-4 file (case.mommat2up or case.mommat2dn).
+!
+! Hence each file holds momentum matrix elements p = -i hbar grad in units
+! of hbar/bohr with the same phase convention, and the total equals the
+! sum of the two spin-diagonal blocks, p = p^upup + p^dndn. BerryCPT works
+! in Hartree atomic units (hbar = m0 = 1), where the velocity matrix element
+! v = p/m0 has the same numerical value as p. The conversion v = p/m0 is
+! valid only for a local potential (see README.md). The reverse element
+! is <u_NB2|p|u_NB1> = CONJG(<u_NB1|p|u_NB2>), since p is Hermitian.
 
 ! File units for the total and optional spin-resolved matrix elements
 INTEGER, INTENT(IN) :: &
@@ -21,7 +49,7 @@ INTEGER, INTENT(IN) :: &
     unitinpDN
 
 ! Spin-resolved matrix-element input
-LOGICAL, INTENT(IN) :: soc_sp_resolv_pij
+LOGICAL, INTENT(IN) :: soc_sp_resolv_vij
 
 ! Current k-point metadata
 INTEGER, INTENT(IN) :: &
@@ -29,27 +57,27 @@ INTEGER, INTENT(IN) :: &
     nbki, &
     nbcderki
 
-! Total momentum matrix elements and energy differences
-COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: pij(:,:,:)
+! Total velocity matrix elements v = p/m0 [a.u.] and energy differences [Ha]
+COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: vij(:,:,:)
 REAL(KIND=sp), ALLOCATABLE, INTENT(OUT) :: dEij(:,:)
 
-! Optional spin-resolved momentum matrix elements
+! Optional spin-diagonal velocity matrix elements [a.u.]
 COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: &
-    pijUP(:,:,:), &
-    pijDN(:,:,:)
+    vijUP(:,:,:), &
+    vijDN(:,:,:)
 
 CALL read_single_mommat_kpoint( &
     unitinp, 'total', ikpt, nbki, nbcderki, & ! in
-    pij, dEij)                                ! out
+    vij, dEij)                                ! out
 
-IF (soc_sp_resolv_pij) THEN
+IF (soc_sp_resolv_vij) THEN
     CALL read_single_mommat_kpoint( &
         unitinpUP, 'spin-up', ikpt, nbki, nbcderki, & ! in
-        pijUP)                                      ! out
+        vijUP)                                      ! out
 
     CALL read_single_mommat_kpoint( &
         unitinpDN, 'spin-down', ikpt, nbki, nbcderki, & ! in
-        pijDN)                                        ! out
+        vijDN)                                        ! out
 END IF
 
 END SUBROUTINE read_mommat_pij_wien2k_kpoint
@@ -57,7 +85,7 @@ END SUBROUTINE read_mommat_pij_wien2k_kpoint
 
 SUBROUTINE read_single_mommat_kpoint( &
         unitinp, file_label, ikpt, nbki, nbcderki, &
-        pij, dEij)
+        vij, dEij)
 
 ! Matrix-element file and its role
 INTEGER, INTENT(IN) :: unitinp
@@ -70,7 +98,7 @@ INTEGER, INTENT(IN) :: &
     nbcderki
 
 ! Rectangular momentum matrix elements
-COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: pij(:,:,:)
+COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: vij(:,:,:)
 
 ! Rectangular energy differences, required only for the total file
 REAL(KIND=sp), ALLOCATABLE, OPTIONAL, INTENT(OUT) :: dEij(:,:)
@@ -93,7 +121,7 @@ REAL(KIND=sp) :: &
     p3_re, p3_im, &
     energy_difference
 
-! Momentum matrix element read from one record
+! Momentum matrix element <u_bii|p|u_bjj> read from one record
 COMPLEX(KIND=sp) :: pvalue(3)
 
 IF (ikpt < 1) THEN
@@ -117,9 +145,9 @@ END IF
 CALL read_mommat_kpoint_header( &
     unitinp, file_label, ikpt, nbki) ! in
 
-CALL allocate_pij( &
+CALL allocate_vij( &
     file_label, ikpt, nbki, nbcderki, & ! in
-    pij)                               ! out
+    vij)                               ! out
 
 IF (PRESENT(dEij)) THEN
     CALL allocate_dEij( &
@@ -127,7 +155,7 @@ IF (PRESENT(dEij)) THEN
         dEij)                              ! out
 END IF
 
-pij = CMPLX(0.0_sp,0.0_sp,KIND=sp)
+vij = CMPLX(0.0_sp,0.0_sp,KIND=sp)
 IF (PRESENT(dEij)) dEij = 0.0_sp
 
 nbb = nbki * (nbki + 1) / 2
@@ -204,6 +232,8 @@ DO WHILE (irow < nbb)
         END IF
     END IF
 
+    ! <u_bii|p|u_bjj> [hbar/bohr], numerically equal to the velocity
+    ! matrix element v = p/m0 in Hartree atomic units
     pvalue(1) = CMPLX(p1_re,p1_im,KIND=sp)
     pvalue(2) = CMPLX(p2_re,p2_im,KIND=sp)
     pvalue(3) = CMPLX(p3_re,p3_im,KIND=sp)
@@ -213,12 +243,12 @@ DO WHILE (irow < nbb)
     energy_difference = energy_difference / 2.0_sp
 
     IF (bii <= nbcderki) THEN
-        pij(:,bii,bjj) = pvalue
+        vij(:,bii,bjj) = pvalue
         IF (PRESENT(dEij)) dEij(bii,bjj) = energy_difference
     END IF
 
     IF (bjj <= nbcderki) THEN
-        pij(:,bjj,bii) = CONJG(pvalue)
+        vij(:,bjj,bii) = CONJG(pvalue)
         IF (PRESENT(dEij)) dEij(bjj,bii) = -energy_difference
     END IF
 END DO
@@ -295,23 +325,23 @@ END IF
 END SUBROUTINE read_mommat_kpoint_header
 
 
-SUBROUTINE allocate_pij( &
+SUBROUTINE allocate_vij( &
         file_label, ikpt, nbki, nbcderki, &
-        pij)
+        vij)
 
 ! Matrix-element file role and current dimensions
 CHARACTER(LEN=*), INTENT(IN) :: file_label
 INTEGER, INTENT(IN) :: ikpt, nbki, nbcderki
 
 ! Momentum matrix allocation
-COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: pij(:,:,:)
+COMPLEX(KIND=sp), ALLOCATABLE, INTENT(OUT) :: vij(:,:,:)
 
 ! Allocation status and message
 INTEGER :: ierr
 CHARACTER(LEN=256) :: iomsg
 
 ALLOCATE( &
-    pij(3,nbcderki,nbki), &
+    vij(3,nbcderki,nbki), &
     STAT=ierr, ERRMSG=iomsg)
 
 IF (ierr /= 0) THEN
@@ -323,7 +353,7 @@ IF (ierr /= 0) THEN
     ERROR STOP 1
 END IF
 
-END SUBROUTINE allocate_pij
+END SUBROUTINE allocate_vij
 
 
 SUBROUTINE allocate_dEij( &

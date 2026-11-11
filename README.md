@@ -9,27 +9,19 @@ Supported electronic-structure codes:
 
 BerryCPT is written in Fortran and is intended for Linux-based systems.
 
-## Current status
+## Status
 
-The current development branch contains a major refactoring and extension of the code after the `v1.0.0` release.
+The `main` branch is the reference version of BerryCPT. Every output file records the Git commit of the build in its first header line, and the same commit is printed at the end of each run. Results should be reported together with that commit. Older tagged releases predate the current implementation and should not be used.
 
-Validated in the current branch:
+The following functionality has been validated, as described in the accompanying paper (in preparation):
 
-- ordinary Berry curvature for MoS2 using WIEN2k
-- ordinary OAM for MoS2 using WIEN2k
-- explicit Fermi-energy occupations using `--efermiry`
-- ordinary Berry curvature for MoS2 using VASP
-- ordinary OAM for MoS2 using VASP
-- explicit Fermi-energy occupations using `--efermiev`
+- Berry curvature and OAM from WIEN2k and VASP (MoS2 monolayer, compared between the two codes and with Wannier interpolation)
+- sigma_z spin Berry curvature from WIEN2k with SOC (Bi2Se3 in the R-3m and Pnma phases, Sb2TeSe2)
+- OAM compared with circular-dichroism ARPES (WSe2 monolayer, CoSi, CoSn)
+- spin-projected OAM from WIEN2k with SOC (CoSn)
+- both occupation modes, explicit Fermi energy and DFT occupations
 
-Implemented and still undergoing broader validation:
-
-- spin-resolved WIEN2k Berry-curvature quantities
-- spin-up-projected OAM
-- generalized OAM matrices
-- additional occupation and spin configurations
-
-Release `v1.0.0` preserves the pre-refactor implementation. That release contains a known pre-existing bug in the VASP `EIGENVAL` reader that limits imported eigenvalues to two decimal places. The current development version reads the full precision present in `EIGENVAL`.
+Generalized OAM matrices are implemented but are not part of that validation. Spin-polarized calculations with SOC have not been validated.
 
 ## Installation
 
@@ -46,7 +38,7 @@ The supplied `Makefile` uses Intel MKL and requires the environment variable `MK
 echo $MKLROOT
 ```
 
-The default compiler configuration uses Intel `ifort` with debugging checks enabled. Alternative GNU Fortran settings are included as commented lines in the `Makefile`.
+The default `Makefile` configuration is the production build with Intel `ifort` (`-O2`). A debugging build and GNU Fortran settings are included as commented lines in the `Makefile`.
 
 Compile with:
 
@@ -78,9 +70,51 @@ The matrix-element and eigenvalue files used in one BerryCPT calculation
 must originate from the same DFT calculation.
 
 The number of unoccupied bands must be convergence-tested. Contributions
-from remote bands decrease as \(1/(\Delta E)^2\) for Berry curvature, but
-only as \(1/\Delta E\) for OAM and generalized OAM. Consequently, OAM
+from remote bands decrease as $1/(\Delta E)^2$ for Berry curvature, but
+only as $1/\Delta E$ for OAM and generalized OAM. Consequently, OAM
 normally requires a larger energy window than Berry curvature.
+
+### Matrix elements and limitations
+
+All quantities are built from velocity matrix elements
+$v_{\alpha,nn'} = \langle u_{n\mathbf{k}} | \hat{v}_\alpha | u_{n'\mathbf{k}} \rangle$
+between cell-periodic Bloch states at the same $\mathbf{k}$.
+
+WIEN2k (`OPTIC`) writes momentum matrix elements
+$\mathbf{p}_{nn'} = \langle u_{n\mathbf{k}} | -\mathrm{i}\hbar\nabla | u_{n'\mathbf{k}} \rangle$
+and, with SOC, their spin-diagonal parts $\mathbf{p}^{\uparrow\uparrow}_{nn'}$ and
+$\mathbf{p}^{\downarrow\downarrow}_{nn'}$, with
+$\mathbf{p}_{nn'} = \mathbf{p}^{\uparrow\uparrow}_{nn'} + \mathbf{p}^{\downarrow\downarrow}_{nn'}$
+(WIEN2k 24.1, `SRC_optic/sph-UP.F` and `outmat.f`). BerryCPT converts them as
+$\mathbf{v}_{nn'} = \mathbf{p}_{nn'}/m_0$. This has the following consequences:
+
+- The conversion holds only for a local potential. A nonlocal potential
+  $\hat{V}_\mathrm{NL}$ adds $(\mathrm{i}/\hbar)[\hat{V}_\mathrm{NL},\hat{\mathbf{r}}]$
+  to the velocity operator, which WIEN2k does not provide. WIEN2k calculations
+  with BerryCPT are therefore restricted to semilocal exchange-correlation
+  functionals and exclude hybrid functionals.
+- With SOC, the matrix elements are taken between spinor states, so SOC enters
+  through the wave functions. The spin-orbit correction to the velocity
+  operator itself, $(\hbar/4m_0^2c_0^2)\,\hat{\boldsymbol{\sigma}}\times\nabla V$,
+  is not included.
+
+VASP (`WAVEDER`) provides the derivative overlaps in the form
+$\langle u_{n\mathbf{k}} | -\mathrm{i}\nabla_{\mathbf{k}} u_{n'\mathbf{k}} \rangle = -\mathbf{r}_{nn'}$,
+where $\mathbf{r}_{nn'} = \mathrm{i}\langle u_{n\mathbf{k}} | \nabla_{\mathbf{k}} u_{n'\mathbf{k}} \rangle$
+are the dipole matrix elements. They include the nonlocal projector augmented-wave
+terms, so the resulting matrix elements are velocity matrix elements. This
+convention, including the factor $-\mathrm{i}$, is the one defined in the VASP 6.6.1
+source (`linear_optics.F`). The VASP wiki page on `WAVEDER` (revision of
+15 April 2026, read 11 November 2026) gives the overlap without the factor
+$-\mathrm{i}$. BerryCPT follows the source code. BerryCPT uses
+
+```math
+\mathbf{v}_{nn'} = \frac{\mathrm{i}}{\hbar}\left(E_{n} - E_{n'}\right)\mathbf{r}_{nn'} ,
+\qquad n \neq n' .
+```
+
+VASP does not write spin-diagonal matrix elements, so spin-resolved quantities
+are available only from WIEN2k.
 
 ## Command-line syntax
 
@@ -246,25 +280,46 @@ Using DFT occupations:
     --occfile case.weight
 ```
 
-A validated example using DFT occupations is:
+A spin-polarized SOC workflow has not been validated. Use matching spin-labelled WIEN2k files and verify the results independently before relying on that configuration.
+
+## Tests
+
+The folder `test_files` contains one test for each DFT code, with the input files, the DFT input and output in `etc`, and the reference results in `expected_output`. Run each test from inside its folder with the command given in its `README`:
 
 ```bash
-../../berrycpt \
-    CoSi-berrycpt.mommat2 \
-    CoSi-berrycpt.mommat2up \
-    CoSi-berrycpt.mommat2dn \
-    --enefile CoSi-berrycpt.energyso \
-    --dftocc \
-    --occfile CoSi-berrycpt.weight
+cd test_files/WIEN2k
+../../berrycpt CoSi-berrycpt.mommat2 CoSi-berrycpt.mommat2up CoSi-berrycpt.mommat2dn \
+    --enefile CoSi-berrycpt.energyso --efermiry 0.8782005017
+
+cd ../VASP
+../../berrycpt WAVEDER --enefile EIGENVAL --efermiev 11.97
 ```
 
-A spin-polarized SOC workflow has not yet been included among the validated cases documented here. Use matching spin-labelled WIEN2k files and verify the results independently before relying on that configuration.
+Both tests use CoSi. The WIEN2k test (SOC with spin-resolved matrix elements) produces every output file type. The VASP test produces the ordinary quantities. Apart from the first header line, which records the Git commit, the results should agree with `expected_output` up to rounding in the last digits, which depends on the compiler and the LAPACK library.
 
 ## Degenerate bands
 
-Bands are assigned to contiguous degenerate groups at every k-point and spin channel. Adjacent bands are grouped when their energy separation does not exceed `1.0E-5 Ha`.
+Bands are assigned to contiguous degenerate groups at every k-point and spin channel. Adjacent bands are grouped when their energy separation does not exceed $10^{-5}$ Ha. This tolerance is fixed in the code (`energy_tolerance` in `berrycpt.f90`).
 
-For an isolated band, BerryCPT evaluates the usual band-resolved perturbation-theory expression. For a degenerate group, it constructs a Hermitian effective matrix and reports its eigenvalues. The reported values inside such a block therefore correspond to eigenvalues of the effective operator, not expectation values attached to the original unrotated DFT eigenvectors.
+For an isolated band, BerryCPT evaluates the usual band-resolved perturbation-theory expression (see [Output conventions](#output-conventions)). For a degenerate group $D$, it constructs a Hermitian effective matrix within the group from the couplings to all states $n' \notin D$ and reports its eigenvalues. For the Berry curvature,
+
+```math
+M_{nm}^{\Omega} = \mathrm{i}\hbar^2 \sum_{n' \notin D}
+\frac{v_{\alpha,nn'}\, v_{\beta,n'm} - v_{\beta,nn'}\, v_{\alpha,n'm}}
+{(E_{n'} - E_{n})(E_{n'} - E_{m})} ,
+\qquad n, m \in D ,
+```
+
+and for the OAM,
+
+```math
+M_{nm}^{L} = \frac{\mathrm{i} m_0 \hbar}{2} \sum_{n' \notin D}
+\left( v_{\alpha,nn'}\, v_{\beta,n'm} - v_{\beta,nn'}\, v_{\alpha,n'm} \right)
+\left[ \frac{1}{E_{n'} - E_{n}} + \frac{1}{E_{n'} - E_{m}} \right] ,
+\qquad n, m \in D .
+```
+
+For a single band ($n = m$) both reduce to the non-degenerate expressions. The reported values inside a degenerate block are eigenvalues of the effective matrix, not expectation values attached to the original unrotated DFT eigenvectors.
 
 The target-band cutoff is adjusted so that it never divides a degenerate group. For WIEN2k, the initial target range is up to twice the largest occupied-band index, limited by the number of available bands. For VASP, the initial target range is read from `NBANDS_CDER` in `WAVEDER`.
 
@@ -276,15 +331,17 @@ The pseudovector component order is:
 yz, zx, xy
 ```
 
-These correspond to Voigt indices 4, 5, and 6.
+These correspond to Voigt indices 4, 5, and 6, so that, for example, $\Omega_{xy,n}$ is the $z$ component of the pseudovector $\boldsymbol{\Omega}_n$.
 
-Units:
+Units and conventions:
 
-- Berry curvature: `bohr^2`
-- OAM: `hbar`
-- generalized OAM: `hbar`
+- Berry curvature and spin Berry curvature: bohr$^2$
+- OAM, spin-projected OAM, and generalized OAM: $\hbar$
+- Wave vectors include the factor $2\pi$. The Berry curvature therefore has the dimension of length squared, and its integral over a closed two-dimensional Brillouin zone equals $2\pi$ times the Chern number, $\int_\mathrm{BZ} \Omega_{xy}(\mathbf{k})\, d^2k = 2\pi C$.
 
-Existing output files are replaced. Every output file contains a detailed header describing its columns, k-point organization, band ranges, degenerate-block labels, and units. At normal termination, BerryCPT prints a summary of the output files that were created and closed successfully.
+The units are also stated in the header of every output file. Existing output files are replaced. Every output file contains a detailed header describing its columns, k-point organization, band ranges, degenerate-block labels, and units. At normal termination, BerryCPT prints a summary of the output files that were created and closed successfully.
+
+The expressions below are written in the same form as in the accompanying paper. The $\mathbf{k}$ label is omitted, and all matrix elements and energies refer to the same $\mathbf{k}$ point. Internally BerryCPT works with velocity matrix elements in Hartree atomic units ($\hbar = m_0 = 1$), where a WIEN2k momentum matrix element $\mathbf{p}_{nn'}$ and the velocity $\mathbf{p}_{nn'}/m_0$ have the same numerical value.
 
 ### Ordinary Berry curvature
 
@@ -296,15 +353,12 @@ bcurv_ij[-up/-dn].dat
 
 The optional suffix identifies an ordinary spin channel, for example a collinear VASP spin channel or a separately processed WIEN2k `up` or `dn` input.
 
-For an isolated band `n`, the generalized operator form is
+For an isolated band $n$,
 
-```text
-Omega_n^(A,B)(alpha,beta)
-  = -2 Im sum_(l != n)
-      A_alpha(n,l) B_beta(l,n) / (E_n - E_l)^2 .
+```math
+\Omega_{\alpha\beta,n} = -2\hbar^2 \,\mathrm{Im} \sum_{n' \neq n}
+\frac{v_{\alpha,nn'}\, v_{\beta,n'n}}{(E_{n} - E_{n'})^2} .
 ```
-
-Ordinary Berry curvature uses the total velocity or momentum matrix elements in both operator positions, `A = v` and `B = v`.
 
 Each k-point block contains:
 
@@ -315,9 +369,11 @@ band  block  Omega_yz  Omega_zx  Omega_xy
 
 The final record for each k-point has `band = 0` and `block = 0`. It contains the occupation-weighted total
 
-```text
-Omega_total = sum_n f_n Omega_n .
+```math
+\Omega_{\alpha\beta} = \sum_{n} f_{n}\, \Omega_{\alpha\beta,n} ,
 ```
+
+where $f_n$ are the occupations (step-function or from the DFT calculation).
 
 ### Spin-resolved Berry-curvature quantities
 
@@ -329,15 +385,18 @@ bcurv_ij-dn.dat
 bcurv_ij-up-dn.dat
 ```
 
-The implemented operator combinations are:
+The file `bcurv_ij-up-dn.dat` contains the $\sigma_z$ spin Berry curvature
 
-```text
-bcurv_ij-up.dat:      A = v_up,          B = v
-bcurv_ij-dn.dat:      A = v_dn,          B = v
-bcurv_ij-up-dn.dat:   A = v_up - v_dn,   B = v
+```math
+\Omega^{(\sigma_z)}_{\alpha\beta,n} = -2\hbar^2 \,\mathrm{Im} \sum_{n' \neq n}
+\frac{J^{(\sigma_z)}_{\alpha,nn'}\, v_{\beta,n'n}}{(E_{n} - E_{n'})^2} ,
+\qquad
+J^{(\sigma_z)}_{\alpha,nn'} = v^{\uparrow\uparrow}_{\alpha,nn'} - v^{\downarrow\downarrow}_{\alpha,nn'} ,
 ```
 
-The third quantity is labelled the sigma-z-normalized spin Berry curvature.
+where $J^{(\sigma_z)}_{\alpha,nn'}$ is the matrix element of the $\sigma_z$-normalized spin current operator $\hat{J}^{(\sigma_z)}_\alpha = \frac{1}{2}\{\hat{v}_\alpha, \hat{\sigma}_z\}$. The physical spin current, associated with $\hat{s}_z = (\hbar/2)\hat{\sigma}_z$, is larger by the factor $\hbar/2$. The spin Berry curvature depends on the choice of the spin quantization axis set in the WIEN2k SOC calculation.
+
+The files `bcurv_ij-up.dat` and `bcurv_ij-dn.dat` contain the spin-up and spin-down contributions, obtained by replacing $J^{(\sigma_z)}_{\alpha,nn'}$ with $v^{\uparrow\uparrow}_{\alpha,nn'}$ or $v^{\downarrow\downarrow}_{\alpha,nn'}$. Their difference is the $\sigma_z$ spin Berry curvature.
 
 For non-degenerate bands, linear combinations of these quantities follow directly from the operator definitions. Inside a degenerate block, the three effective matrices are diagonalized separately. Their ordered eigenvalues must not be combined band by band. Linear relations remain valid at the matrix level and for block traces.
 
@@ -349,15 +408,12 @@ Output file:
 oam_ij[-up/-dn].dat
 ```
 
-For an isolated band `n`,
+For an isolated band $n$,
 
-```text
-L_n^(A,B)(alpha,beta)
-  = 2 Im sum_(l != n)
-      A_alpha(n,l) B_beta(l,n) / (E_n - E_l) .
+```math
+L_{\alpha\beta,n} = 2 m_0 \hbar \,\mathrm{Im} \sum_{n' \neq n}
+\frac{v_{\alpha,nn'}\, v_{\beta,n'n}}{E_{n} - E_{n'}} .
 ```
-
-Ordinary OAM uses `A = v` and `B = v`.
 
 Each record contains:
 
@@ -375,12 +431,22 @@ Output file:
 oam_ij-sigma_z-up.dat
 ```
 
-This file is written only when the three spin-resolved WIEN2k matrix-element files are supplied. The current implementation uses the spin-up projected matrix elements in both operator positions:
+This file is written only when the three spin-resolved WIEN2k matrix-element files are supplied. It contains the OAM projected onto the spin-up subspace,
 
-```text
-A = v_up
-B = v_up
+```math
+\mathbf{L}^{(\sigma_z\uparrow)}_{n} = \langle u_{n} | \hat{P}_{\sigma_z\uparrow}\, \hat{\mathbf{L}}\, \hat{P}_{\sigma_z\uparrow} | u_{n} \rangle ,
+\qquad
+\hat{P}_{\sigma_z\uparrow} = \tfrac{1}{2}\left(I_2 + \hat{\sigma}_z\right) ,
 ```
+
+evaluated from the spin-diagonal velocity matrix elements as
+
+```math
+L^{(\sigma_z\uparrow)}_{\alpha\beta,n} \approx 2 m_0 \hbar \,\mathrm{Im} \sum_{n' \neq n}
+\frac{v^{\uparrow\uparrow}_{\alpha,nn'}\, v^{\uparrow\uparrow}_{\beta,n'n}}{E_{n} - E_{n'}} .
+```
+
+This is an approximation. For spinors that are not spin-pure, the spin-up and spin-down projections evaluated in this way do not add up to the ordinary OAM, $L^{(\sigma_z\uparrow)} + L^{(\sigma_z\downarrow)} \neq L$. The missing terms are the products $v^{\uparrow\uparrow}_{\alpha,nn'} v^{\downarrow\downarrow}_{\beta,n'n}$ and $v^{\downarrow\downarrow}_{\alpha,nn'} v^{\uparrow\uparrow}_{\beta,n'n}$, which enter $L$ but neither spin-projected sum.
 
 The output has the same band, block, and component structure as ordinary OAM.
 
@@ -392,30 +458,17 @@ Output file:
 goam_ij_nm[-up/-dn].dat
 ```
 
-For each component `c`, BerryCPT writes the complete complex Hermitian matrix
-
-```text
-L_c(i,j) = <u_i|L_c|u_j> .
-```
-
-The first matrix index is the bra-band index and the second is the ket-band index. The matrix remains in the original DFT eigenstate basis and is not diagonalized within degenerate blocks.
-
-For Cartesian components `alpha` and `beta`, define
-
-```text
-P_ijl = A_alpha(i,l) B_beta(l,j)
-      - B_beta(i,l) A_alpha(l,j) .
-```
+For each component, BerryCPT writes the complete complex Hermitian matrix $L_{\alpha\beta,nm} = \langle u_{n} | \hat{L}_{\alpha\beta} | u_{m} \rangle$. The first matrix index is the bra-band index and the second is the ket-band index. The matrix remains in the original DFT eigenstate basis and is not diagonalized within degenerate blocks. Its off-diagonal elements therefore depend on the phases of the DFT eigenvectors, which each DFT code fixes arbitrarily at every $\mathbf{k}$ point. Only gauge-invariant combinations are physical: the diagonal elements of non-degenerate bands, $|L_{\alpha\beta,nm}|^2$ between non-degenerate bands, and the eigenvalues or traces of the sub-blocks belonging to degenerate subspaces.
 
 BerryCPT evaluates
 
-```text
-L_ij^(alpha,beta)
-  = (i/2) sum_l P_ijl
-      [ Q_i(l)/(E_l-E_i) + Q_j(l)/(E_l-E_j) ] .
+```math
+L_{\alpha\beta,nm} = \frac{\mathrm{i} m_0 \hbar}{2} \sum_{n'}
+\left( v_{\alpha,nn'}\, v_{\beta,n'm} - v_{\beta,nn'}\, v_{\alpha,n'm} \right)
+\left[ \frac{Q_{n}(n')}{E_{n'} - E_{n}} + \frac{Q_{m}(n')}{E_{n'} - E_{m}} \right] .
 ```
 
-`Q_i(l)` is zero when the intermediate state `l` belongs to the same degenerate block as external state `i`, and one otherwise. `Q_j(l)` is defined analogously. These factors exclude singular same-block intermediate-state couplings.
+$Q_n(n')$ is zero when the intermediate state $n'$ belongs to the same degenerate block as the external state $n$, and one otherwise. $Q_m(n')$ is defined analogously. These factors exclude singular same-block intermediate-state couplings. The diagonal elements of a non-degenerate band reduce to the ordinary OAM.
 
 Only the upper triangle is calculated explicitly. The lower triangle is reconstructed by Hermitian conjugation. The full matrix is written using complex `(Re,Im)` fields.
 
@@ -451,3 +504,15 @@ Agreement for one material or one band range does not establish convergence for 
 - `WAVEDER` and `EIGENVAL` must originate from the same VASP calculation.
 - WIEN2k matrix-element, energy, and occupation files must represent the same calculation and compatible band ranges.
 - The built-in `--help` text should be kept synchronized with this README whenever the command-line interface changes.
+
+## How to cite
+
+Please cite BerryCPT in publications and other scholarly work that use this software or results generated with it, giving the Git commit from which the results originated:
+
+```text
+Rubel, O. (2024). BerryCPT: Calculates Berry curvature using perturbation
+theory [Computer software]. https://github.com/rubel75/berrycpt,
+commit <commit hash>.
+```
+
+The commit is printed at the end of every run and in the first header line of every output file, in the form `Git revision: <date>-<commit hash>`.

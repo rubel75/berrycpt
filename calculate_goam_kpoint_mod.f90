@@ -13,7 +13,7 @@ CONTAINS
 SUBROUTINE calculate_goam_kpoint( &
     nbki, nbcderki, &               ! in
     dg_group, &                     ! in
-    pijA, pijB, dEij, &             ! in
+    vijA, vijB, dEij, &             ! in
     goam)                           ! out
 
 ! Calculate the generalized orbital-angular-momentum matrix at one k-point.
@@ -34,14 +34,17 @@ SUBROUTINE calculate_goam_kpoint( &
 !
 ! The rectangular input arrays store
 !
-!     pijA(alpha,i,l) = <u_i|A_alpha|u_l>,
-!     pijB(beta ,i,l) = <u_i|B_beta |u_l>,
+!     vijA(alpha,i,l) = <u_i|A_alpha|u_l>,
+!     vijB(beta ,i,l) = <u_i|B_beta |u_l>,
 !
 ! for target state i <= nbcderki and transition state l <= nbki. The reverse
 ! orientation required below is reconstructed from Hermiticity:
 !
-!     <u_l|B_beta |u_j> = CONJG(pijB(beta,j,l)),
-!     <u_l|A_alpha|u_j> = CONJG(pijA(alpha,j,l)).
+!     <u_l|B_beta |u_j> = CONJG(vijB(beta,j,l)),
+!     <u_l|A_alpha|u_j> = CONJG(vijA(alpha,j,l)).
+! This requires A and B to be Hermitian operators. All operators used by
+! BerryCPT are Hermitian: the velocity v, its spin-diagonal blocks v^upup
+! and v^dndn, and the spin current J = v^upup - v^dndn.
 !
 ! The output convention is
 !
@@ -74,6 +77,9 @@ SUBROUTINE calculate_goam_kpoint( &
 ! where Q_i(l) is zero when l belongs to the same degenerate block as i and
 ! one otherwise. Q_j(l) is defined analogously. These projectors exclude
 ! singular couplings within either external state's degenerate subspace.
+! The expression is in atomic units (hbar = m0 = 1). In SI form, as written
+! in README.md, the prefactor (i/2) becomes (i m0 hbar/2) and A = B = v.
+! The result is in units of hbar.
 !
 ! ISOLATED-BAND DIAGONAL
 ! ----------------------
@@ -103,11 +109,11 @@ SUBROUTINE calculate_goam_kpoint( &
 ! PRECISION AND SUMMATION
 ! -----------------------
 !
-! The momentum matrix elements and energy differences enter in sp, matching
+! The velocity matrix elements and energy differences enter in sp, matching
 ! the readers and the regular OAM implementation. To reproduce the validated
 ! regular-OAM diagonal as closely as possible:
 !
-!   1. each antisymmetrized momentum product is formed in sp;
+!   1. each antisymmetrized velocity product is formed in sp;
 !   2. each stored energy difference is read in sp;
 !   3. numerator and denominator are promoted separately to dp;
 !   4. generalized-OAM terms are evaluated in dp;
@@ -125,8 +131,8 @@ INTEGER, INTENT(IN) :: &
 
 ! Rectangular operator matrices and energy differences
 COMPLEX(KIND=sp), INTENT(IN) :: &
-    pijA(:,:,:), & ! <u_i|A_alpha|u_l> [a.u.]
-    pijB(:,:,:)    ! <u_i|B_beta|u_l> [a.u.]
+    vijA(:,:,:), & ! <u_i|A_alpha|u_l> [a.u.]
+    vijB(:,:,:)    ! <u_i|B_beta|u_l> [a.u.]
 REAL(KIND=sp), INTENT(IN) :: &
     dEij(:,:)      ! E_l-E_i for target i and transition state l [Ha]
 
@@ -140,9 +146,9 @@ COMPLEX(KIND=dp) :: &
     correction, & ! Kahan compensation
     term          ! generalized-OAM contribution from one intermediate band
 
-! Antisymmetrized momentum product
+! Antisymmetrized velocity product
 COMPLEX(KIND=sp) :: &
-    p2                ! P_ijl formed in single precision
+    vv                ! P_ijl formed in single precision
 
 ! Double-precision reciprocal denominator factor
 REAL(KIND=dp) :: &
@@ -173,7 +179,7 @@ INTEGER, PARAMETER :: &
 
 CALL validate_goam_inputs( &
     nbki, nbcderki, dg_group, & ! in
-    pijA, pijB, dEij)           ! in
+    vijA, vijB, dEij)           ! in
 
 ALLOCATE( &
     goam(nbcderki,nbcderki,3), &
@@ -208,12 +214,12 @@ DO icomp = 1, 3
                         CALL check_nonzero_denominator( &
                             i, l, dEij(i,l)) ! in
 
-                        p2 = &
-                            pijA(alpha,i,l) * CONJG(pijB(beta,i,l)) - &
-                            pijB(beta,i,l) * CONJG(pijA(alpha,i,l))
+                        vv = &
+                            vijA(alpha,i,l) * CONJG(vijB(beta,i,l)) - &
+                            vijB(beta,i,l) * CONJG(vijA(alpha,i,l))
 
                         term = (0.0_dp,1.0_dp) * &
-                            CMPLX(p2,KIND=dp) / REAL(dEij(i,l),KIND=dp)
+                            CMPLX(vv,KIND=dp) / REAL(dEij(i,l),KIND=dp)
 
                         CALL check_finite_term( &
                             i, j, l, icomp, term) ! in
@@ -256,12 +262,12 @@ DO icomp = 1, 3
                     END IF
 
                     IF (has_contribution) THEN
-                        p2 = &
-                            pijA(alpha,i,l) * CONJG(pijB(beta,j,l)) - &
-                            pijB(beta,i,l) * CONJG(pijA(alpha,j,l))
+                        vv = &
+                            vijA(alpha,i,l) * CONJG(vijB(beta,j,l)) - &
+                            vijB(beta,i,l) * CONJG(vijA(alpha,j,l))
 
                         term = (0.0_dp,0.5_dp) * &
-                            CMPLX(p2,KIND=dp) * inverse_dE_sum
+                            CMPLX(vv,KIND=dp) * inverse_dE_sum
 
                         CALL check_finite_term( &
                             i, j, l, icomp, term) ! in
@@ -369,7 +375,7 @@ END SUBROUTINE check_finite_term
 
 SUBROUTINE validate_goam_inputs( &
     nbki, nbcderki, dg_group, & ! in
-    pijA, pijB, dEij)           ! in
+    vijA, vijB, dEij)           ! in
 
 ! Validate the interface and degenerate-block invariants required here.
 
@@ -382,8 +388,8 @@ INTEGER, INTENT(IN) :: &
 
 ! Rectangular operator matrices and energy differences
 COMPLEX(KIND=sp), INTENT(IN) :: &
-    pijA(:,:,:), &
-    pijB(:,:,:)
+    vijA(:,:,:), &
+    vijB(:,:,:)
 REAL(KIND=sp), INTENT(IN) :: &
     dEij(:,:)
 
@@ -410,17 +416,17 @@ IF (SIZE(dg_group) /= nbki) THEN
     ERROR STOP 1
 END IF
 
-IF (ANY(SHAPE(pijA) /= [3,nbcderki,nbki])) THEN
-    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of pijA'
-    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(pijA)
+IF (ANY(SHAPE(vijA) /= [3,nbcderki,nbki])) THEN
+    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of vijA'
+    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(vijA)
     WRITE(*,'(A,3(I0,1X))') &
         ' Expected shape = ', 3, nbcderki, nbki
     ERROR STOP 1
 END IF
 
-IF (ANY(SHAPE(pijB) /= [3,nbcderki,nbki])) THEN
-    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of pijB'
-    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(pijB)
+IF (ANY(SHAPE(vijB) /= [3,nbcderki,nbki])) THEN
+    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of vijB'
+    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(vijB)
     WRITE(*,'(A,3(I0,1X))') &
         ' Expected shape = ', 3, nbcderki, nbki
     ERROR STOP 1

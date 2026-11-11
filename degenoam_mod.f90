@@ -1,7 +1,7 @@
 MODULE degenoam_mod
 CONTAINS
 
-SUBROUTINE degenoam(nb, idg1, idg2, pijA, pijB, dEij, & ! <- args in 
+SUBROUTINE degenoam(nb, idg1, idg2, vijA, vijB, dEij, & ! <- args in 
     oam) ! -> args out
 
 ! Orbital angular momentum (OAM) for a block of degenerate bands
@@ -18,8 +18,8 @@ INTEGER, intent(in) :: &
     nb, & ! number of bands for a current k-point
     idg1, idg2 ! intext of the first and last degenerate state in the block
 COMPLEX(kind=sp), intent(in) :: &
-    pijA(:,:), & ! momentum matrix elements [at.u.]
-    pijB(:,:)
+    vijA(:,:), & ! velocity matrix elements of operator A [a.u.]
+    vijB(:,:)
 REAL(kind=sp), intent(in) :: &
     dEij(:,:) ! energy differences E_n-E_i [Ha]
 REAL(kind=dp), ALLOCATABLE, intent(out) :: &
@@ -35,7 +35,7 @@ COMPLEX(kind=dp) :: &
     Lnln, & ! component leading to M(m,n)
     temp, corrected_term ! intermediates for Kahan summation
 COMPLEX(kind=sp) :: &
-    p2 ! antisymmetrized product of momentum matrix elements
+    vv ! antisymmetrized product of velocity matrix elements
 REAL(kind=dp) :: &
     dEi, dEj, & ! E_n-E_i and E_n-E_j [Ha]
     inverse_gap_sym ! symmetrized reciprocal energy denominator [Ha^-1]
@@ -54,19 +54,19 @@ ALLOCATE( M(ndg,ndg), Mcorr(ndg,ndg) )
 
 !! Check dimensions of INTENT(IN) arrays
 
-! Check dimensions of pijA
-IF (SIZE(pijA, 1) /= ndg .OR. SIZE(pijA, 2) /= nb) THEN
+! Check dimensions of vijA
+IF (SIZE(vijA, 1) /= ndg .OR. SIZE(vijA, 2) /= nb) THEN
     WRITE(*,'(A,I0,A,I0,A,I0,A,I0,A)') &
-        'Error: pijA shape is (', SIZE(pijA,1), ',', SIZE(pijA,2), &
+        'Error: vijA shape is (', SIZE(vijA,1), ',', SIZE(vijA,2), &
         ') but expected (', ndg, ',', nb, ')'
-    ERROR STOP 'Inconsistent pijA dimensions'
+    ERROR STOP 'Inconsistent vijA dimensions'
 END IF
-! Check dimensions of pijB
-IF (SIZE(pijB, 1) /= nb .OR. SIZE(pijB, 2) /= ndg) THEN
+! Check dimensions of vijB
+IF (SIZE(vijB, 1) /= nb .OR. SIZE(vijB, 2) /= ndg) THEN
     WRITE(*,'(A,I0,A,I0,A,I0,A,I0,A)') &
-        'Error: pijB shape is (', SIZE(pijB,1), ',', SIZE(pijB,2), &
+        'Error: vijB shape is (', SIZE(vijB,1), ',', SIZE(vijB,2), &
         ') but expected (', nb, ',', ndg, ')'
-    ERROR STOP 'Inconsistent pijB dimensions'
+    ERROR STOP 'Inconsistent vijB dimensions'
 END IF
 ! Check dimensions of dEij
 IF (SIZE(dEij, 1) /= ndg .OR. SIZE(dEij, 2) /= nb) THEN
@@ -105,11 +105,14 @@ DO i = 1, ndg
         Mcorr(i,j) = (0.0_dp, 0.0_dp)
         DO n = 1, nb
             IF (n < idg1 .OR. n > idg2) THEN ! ignore degenerate bands
-                ! note that pijB(i,n) = CONJG(pijB(n,i))
+                ! The second product is B_beta(i,n) A_alpha(n,j). Only <i|A|n> and
+                ! <n|B|j> are passed in, so it is formed as
+                ! CONJG(<n|B|i>) CONJG(<j|A|n>), which requires A and B to be
+                ! Hermitian (true for v, v^upup, v^dndn and J).
                 ! Products are formed in sp, then promoted to dp before
                 ! division and Kahan compensated summation.
-                p2 = pijA(i,n)*pijB(n,j) - &
-                    CONJG(pijB(n,i))*CONJG(pijA(j,n))
+                vv = vijA(i,n)*vijB(n,j) - &
+                    CONJG(vijB(n,i))*CONJG(vijA(j,n))
 
                 dEi = REAL(dEij(i,n), KIND=dp)
                 dEj = REAL(dEij(j,n), KIND=dp)
@@ -122,7 +125,7 @@ DO i = 1, ndg
                     inverse_gap_sym = 0.5_dp*(1.0_dp/dEi + 1.0_dp/dEj)
                 END IF
 
-                Lnln = (0.0_dp, 1.0_dp) * CMPLX(p2, KIND=dp) * &
+                Lnln = (0.0_dp, 1.0_dp) * CMPLX(vv, KIND=dp) * &
                     CMPLX(inverse_gap_sym, 0.0_dp, KIND=dp)
 
                 ! make sure Lnln is finite (not NaN and not Inf)
@@ -131,13 +134,13 @@ DO i = 1, ndg
                     WRITE(*,*) 'i =', i
                     WRITE(*,*) 'j =', j
                     WRITE(*,*) 'n =', n
-                    WRITE(*,*) 'pijA(i,n) =', pijA(i,n)
-                    WRITE(*,*) 'pijB(n,j) =', pijB(n,j)
+                    WRITE(*,*) 'vijA(i,n) =', vijA(i,n)
+                    WRITE(*,*) 'vijB(n,j) =', vijB(n,j)
                     WRITE(*,*) 'dEij(i,n) =', dEij(i,n)
                     WRITE(*,*) 'dEij(j,n) =', dEij(j,n)
                     WRITE(*,*) 'inverse_gap_sym = ', inverse_gap_sym
                     WRITE(*,*) 'Lnln = ', Lnln
-                    WRITE(*,*) 'p2 = ', p2
+                    WRITE(*,*) 'vv = ', vv
                     ERROR STOP 'Error: Lnln is not finite'
                 END IF
                 ! Kahan summation into M(i,j)

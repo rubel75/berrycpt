@@ -12,7 +12,7 @@ CONTAINS
 
 SUBROUTINE calculate_oam_kpoint( &
     nbki, nbcderki, dg_group, & ! in
-    pijA, pijB, dEij, &         ! in
+    vijA, vijB, dEij, &         ! in
     oam)                        ! out
 
 ! Calculate the three pseudovector components of the orbital angular momentum
@@ -20,8 +20,8 @@ SUBROUTINE calculate_oam_kpoint( &
 !
 ! Array and energy-difference conventions
 ! ---------------------------------------
-! pijA(alpha,i,j) = <i|A_alpha|j> in atomic units
-! pijB(beta,i,j)  = <i|B_beta |j> in atomic units
+! vijA(alpha,i,j) = <i|A_alpha|j> in atomic units
+! vijB(beta,i,j)  = <i|B_beta |j> in atomic units
 ! dEij(i,j)       = E_j - E_i in Hartree
 !
 ! Both operator arrays use rectangular storage:
@@ -30,6 +30,9 @@ SUBROUTINE calculate_oam_kpoint( &
 ! band index runs through nbki. The reverse matrix elements required by the
 ! perturbation-theory expression are reconstructed using Hermiticity:
 !     <l|B_beta|j> = CONJG(<j|B_beta|l>).
+! This requires A and B to be Hermitian operators. All operators used by
+! BerryCPT are Hermitian: the velocity v, its spin-diagonal blocks v^upup
+! and v^dndn, and the spin current J = v^upup - v^dndn.
 !
 ! Pseudovector convention
 ! -----------------------
@@ -58,16 +61,25 @@ SUBROUTINE calculate_oam_kpoint( &
 ! This follows directly from the diagonal element of the effective matrix
 ! constructed below. For ordinary orbital angular momentum, A = B = p.
 !
+! In SI form, as written in README.md and in the accompanying paper,
+!
+!   L_n(alpha,beta)
+!       = 2 m0 hbar Im SUM_{n' /= n}
+!           v_alpha(n,n') v_beta(n',n) / (E_n - E_n').
+!
+! In atomic units (hbar = m0 = 1) velocity and momentum matrix elements
+! coincide, and the result is in units of hbar.
+!
 ! The spin-projected OAM used elsewhere in berrycpt is not constructed like
 ! the spin Berry curvature. Its spin-up contribution uses
 !
-!   A = p^up,  B = p^up,
+!   A = v^up,  B = v^up,
 !
 ! and a possible spin-down contribution analogously uses
 !
-!   A = p^dn,  B = p^dn.
+!   A = v^dn,  B = v^dn.
 !
-! The mixed choices (p^up,p), (p^dn,p), and (p^up-p^dn,p) belong to the
+! The mixed choices (v^up,v), (v^dn,v), and (v^up-v^dn,v) belong to the
 ! spin-resolved Berry-curvature definitions and are not the spin-projected
 ! OAM definition implemented by the existing code.
 !
@@ -102,7 +114,7 @@ SUBROUTINE calculate_oam_kpoint( &
 !
 ! Precision and compensated summation
 ! -----------------------------------
-! The input momentum matrices and energy differences are sp, matching the
+! The input velocity matrices and energy differences are sp, matching the
 ! matrix-element readers. Group-specific arrays remain sp. Each product in the
 ! antisymmetrized numerator is formed in sp. The two energy differences are
 ! promoted separately to dp before their reciprocals and average are evaluated.
@@ -119,8 +131,8 @@ INTEGER, INTENT(IN) :: &
 
 ! Rectangular operator matrices and energy differences
 COMPLEX(KIND=sp), INTENT(IN) :: &
-    pijA(:,:,:), & ! first operator matrix elements [a.u.]
-    pijB(:,:,:)    ! second operator matrix elements [a.u.]
+    vijA(:,:,:), & ! first operator matrix elements [a.u.]
+    vijB(:,:,:)    ! second operator matrix elements [a.u.]
 REAL(KIND=sp), INTENT(IN) :: &
     dEij(:,:)      ! E_j-E_i for target band i and transition band j [Ha]
 
@@ -130,8 +142,8 @@ REAL(KIND=dp), ALLOCATABLE, INTENT(OUT) :: &
 
 ! Group-specific matrices passed to the established degenerate-PT routine
 COMPLEX(KIND=sp), ALLOCATABLE :: &
-    pijAdg(:,:), & ! <i|A_alpha|l> for target states i in the current group
-    pijBdg(:,:)    ! <l|B_beta|j> for target states j in the current group
+    vijAdg(:,:), & ! <i|A_alpha|l> for target states i in the current group
+    vijBdg(:,:)    ! <l|B_beta|j> for target states j in the current group
 REAL(KIND=sp), ALLOCATABLE :: &
     dEijdg(:,:)    ! E_l-E_i for target states i in the current group [Ha]
 REAL(KIND=dp), ALLOCATABLE :: &
@@ -160,7 +172,7 @@ INTEGER, PARAMETER :: &
 
 CALL validate_oam_inputs( &
     nbki, nbcderki, dg_group, & ! in
-    pijA, pijB, dEij)           ! in
+    vijA, vijB, dEij)           ! in
 
 ALLOCATE( &
     oam(nbcderki,3), &
@@ -186,8 +198,8 @@ DO WHILE (idg1 <= nbcderki)
     ndg = idg2 - idg1 + 1
 
     ALLOCATE( &
-        pijAdg(ndg,nbki), &
-        pijBdg(nbki,ndg), &
+        vijAdg(ndg,nbki), &
+        vijBdg(nbki,ndg), &
         dEijdg(ndg,nbki), &
         STAT=ierr, ERRMSG=iomsg)
     IF (ierr /= 0) THEN
@@ -209,14 +221,14 @@ DO WHILE (idg1 <= nbcderki)
         ! <l|B_beta|j> = CONJG(<j|B_beta|l>).
         DO m = 1, ndg
             iband = idg1 + m - 1
-            pijAdg(m,:) = pijA(alpha,iband,1:nbki)
-            pijBdg(:,m) = CONJG(pijB(beta,iband,1:nbki))
+            vijAdg(m,:) = vijA(alpha,iband,1:nbki)
+            vijBdg(:,m) = CONJG(vijB(beta,iband,1:nbki))
             dEijdg(m,:) = dEij(iband,1:nbki)
         END DO
 
         CALL degenoam( &
             nbki, idg1, idg2, &          ! in
-            pijAdg, pijBdg, dEijdg, &    ! in
+            vijAdg, vijBdg, dEijdg, &    ! in
             oamdg)                       ! out
 
         IF (.NOT. ALLOCATED(oamdg)) THEN
@@ -237,7 +249,7 @@ DO WHILE (idg1 <= nbcderki)
         DEALLOCATE(oamdg)
     END DO
 
-    DEALLOCATE(pijAdg, pijBdg, dEijdg)
+    DEALLOCATE(vijAdg, vijBdg, dEijdg)
     idg1 = idg2 + 1
 END DO
 
@@ -246,7 +258,7 @@ END SUBROUTINE calculate_oam_kpoint
 
 SUBROUTINE validate_oam_inputs( &
     nbki, nbcderki, dg_group, & ! in
-    pijA, pijB, dEij)           ! in
+    vijA, vijB, dEij)           ! in
 
 ! Validate only the interface invariants required by this module.
 
@@ -259,8 +271,8 @@ INTEGER, INTENT(IN) :: &
 
 ! Rectangular operator matrices and energy differences
 COMPLEX(KIND=sp), INTENT(IN) :: &
-    pijA(:,:,:), &
-    pijB(:,:,:)
+    vijA(:,:,:), &
+    vijB(:,:,:)
 REAL(KIND=sp), INTENT(IN) :: &
     dEij(:,:)
 
@@ -287,17 +299,17 @@ IF (SIZE(dg_group) /= nbki) THEN
     ERROR STOP 1
 END IF
 
-IF (ANY(SHAPE(pijA) /= [3,nbcderki,nbki])) THEN
-    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of pijA'
-    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(pijA)
+IF (ANY(SHAPE(vijA) /= [3,nbcderki,nbki])) THEN
+    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of vijA'
+    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(vijA)
     WRITE(*,'(A,3(I0,1X))') &
         ' Expected shape = ', 3, nbcderki, nbki
     ERROR STOP 1
 END IF
 
-IF (ANY(SHAPE(pijB) /= [3,nbcderki,nbki])) THEN
-    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of pijB'
-    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(pijB)
+IF (ANY(SHAPE(vijB) /= [3,nbcderki,nbki])) THEN
+    WRITE(*,'(/,A)') ' ERROR: Unexpected shape of vijB'
+    WRITE(*,'(A,3(I0,1X))') ' Actual shape = ', SHAPE(vijB)
     WRITE(*,'(A,3(I0,1X))') &
         ' Expected shape = ', 3, nbcderki, nbki
     ERROR STOP 1

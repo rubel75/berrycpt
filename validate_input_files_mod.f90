@@ -9,16 +9,16 @@ CONTAINS
 
 SUBROUTINE validate_input_files( &
         fnameinp, fnameinpUP, fnameinpDN, fnameene, fnameocc, &
-        wien2k, soc_sp_resolv_pij, dftocc)
+        wien2k, soc_sp_resolv_vij, dftocc)
 
 ! Names of the matrix-element, energy, and occupation files
 CHARACTER(LEN=*), INTENT(IN) :: &
     fnameinp, fnameinpUP, fnameinpDN, fnameene, fnameocc
 
 ! Input-file configuration
-LOGICAL, INTENT(IN) :: wien2k, soc_sp_resolv_pij, dftocc
+LOGICAL, INTENT(IN) :: wien2k, soc_sp_resolv_vij, dftocc
 
-IF (.NOT. wien2k .AND. soc_sp_resolv_pij) THEN
+IF (.NOT. wien2k .AND. soc_sp_resolv_vij) THEN
     CALL input_file_error( &
         'Three matrix-element files can be used only with WIEN2k')
 END IF
@@ -26,7 +26,7 @@ END IF
 CALL require_input_file( &
     fnameinp, 'matrix-element file') ! in
 
-IF (soc_sp_resolv_pij) THEN
+IF (soc_sp_resolv_vij) THEN
     CALL require_input_file( &
         fnameinpUP, 'spin-up matrix-element file') ! in
     CALL require_input_file( &
