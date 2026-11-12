@@ -331,7 +331,7 @@ The pseudovector component order is:
 yz, zx, xy
 ```
 
-These correspond to Voigt indices 4, 5, and 6, so that, for example, $\Omega_{xy,n}$ is the $z$ component of the pseudovector $\boldsymbol{\Omega}_n$.
+These correspond to Voigt indices 4, 5, and 6, so that, for example, $\Omega_{xy,n}$ of a non-degenerate band is the $z$ component of the pseudovector $\boldsymbol{\Omega}_n$. For bands in degenerate blocks, see [Limitations](#limitations).
 
 Units and conventions:
 
@@ -497,6 +497,45 @@ Convergence must be checked with respect to:
 - the DFT basis and related numerical parameters
 
 Agreement for one material or one band range does not establish convergence for another system.
+
+## Limitations
+
+### Matrix elements
+
+- **WIEN2k, nonlocal potentials.** WIEN2k provides momentum matrix elements, which equal velocity matrix elements only for a local potential. Hybrid functionals are therefore not supported (see [Matrix elements and limitations](#matrix-elements-and-limitations)).
+- **WIEN2k, spin-orbit coupling.** The spin-orbit correction to the velocity operator is not included.
+- **VASP.** `WAVEDER` contains no spin-diagonal matrix elements, so spin-resolved quantities are available only from WIEN2k.
+
+Berry curvature and OAM involve only first derivatives of the Hamiltonian, so the second-derivative term that limits effective masses calculated from VASP velocity matrix elements does not enter here.
+
+### Finite band sums
+
+Only the bands available in the input enter the sums. OAM and generalized OAM converge more slowly than the Berry curvature with the number of empty bands (see [Numerical convergence](#numerical-convergence)).
+
+### Degenerate blocks
+
+In a degenerate block, each pseudovector component (yz, zx, xy) has its own effective matrix, and the three matrices are diagonalized separately, with eigenvalues listed in ascending order for each component. In general, the three matrices do not commute, so the eigenvalues of different components belong to different linear combinations of the degenerate states. Inside a degenerate block:
+
+- a record (Omega_yz, Omega_zx, Omega_xy) is not the pseudovector of one state. Its length and direction depend on the ordering and on the Cartesian frame, so such records must not be plotted as vectors (e.g., Berry curvature or OAM textures) or combined into magnitudes,
+- the band index labels the ascending order of each component, not a state, so following one band index across k does not follow one state,
+- different quantities (e.g., spin-up and spin-down contributions) must not be combined band by band either (see [Spin-resolved Berry-curvature quantities](#spin-resolved-berry-curvature-quantities)).
+
+The following quantities remain well defined: the eigenvalues of each component separately, the block trace of each component (a proper pseudovector of the block, which also enters the occupation-weighted total), and the eigenvalues of the projection of the three matrices onto a fixed direction. In centrosymmetric materials with spin-orbit coupling, every band belongs to a Kramers pair, and the matrices of such a pair are traceless. The block trace then vanishes, while the eigenvalues of each component are ±Ω (hidden Berry curvature or OAM, e.g., of opposite sign on the two layers of a bulk 2H transition-metal dichalcogenide). The same applies to the OAM and to the spin-resolved quantities.
+
+### Degeneracy lifted at first order
+
+Degenerate perturbation theory assumes that the degeneracy is not lifted at first order in k. At points where bands cross linearly (e.g., Weyl or multifold fermions, such as CoSi at Γ), the band-resolved Berry curvature and OAM diverge on approaching the crossing. The values of a degenerate block at the crossing itself include only the couplings to bands outside the block and do not represent the crossing. Use band-resolved values at a finite distance from the crossing, or integrated quantities (e.g., the Chern number of each band on a surface enclosing the crossing).
+
+### Degeneracy tolerance
+
+The blocks are formed with a fixed tolerance of $10^{-5}$ Ha (see [Degenerate bands](#degenerate-bands)). States that are split by less than the tolerance are treated as one block, so band-resolved values near band crossings may change with the tolerance. Integrated quantities are not affected when the merged states have the same occupation.
+
+### Approximations and validation
+
+- The spin-up-projected OAM is an approximation for spinors that are not spin-pure (see [Spin-up-projected OAM](#spin-up-projected-oam)).
+- The spin Berry curvature depends on the spin quantization axis set in the WIEN2k SOC calculation.
+- The off-diagonal elements of the generalized OAM matrices depend on the phases of the DFT eigenvectors (see [Generalized OAM](#generalized-oam)).
+- Generalized OAM and spin-polarized calculations with SOC have not been validated (see [Status](#status)).
 
 ## Notes
 
